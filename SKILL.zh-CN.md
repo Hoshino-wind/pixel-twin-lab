@@ -157,7 +157,7 @@ python /path/to/pixel-twin-lab/scripts/plan_calibration.py \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
 
-默认分析 out 目录下的 `rebuilt-capture.png`(`--capture` 可覆盖)。对每个区域探测整数布局偏移(±4px,`--shift-radius` 可调)、均匀色差、位图类内容复杂度和"capture 侧为平色的未实现状态",输出 `calibration-plan.json` 和 `calibration-plan.md`,把区域按 pass 分组并附一句话动作("往回移 (-3, 0)"、"参考色 #ffffff 实现为 #fafaff")。判为 `slice-island` 的区域生成可直接合并的 `slice-manifest.suggested.json`;判为 `not-built` 的区域生成 `skeleton.suggested.css`(参考位置的容器 + 采样填充色),用来启动 layout pass。残余误差仅为抗锯齿级别的区域列为 converged,无需处理。迭代 0 时大部分区域会落在 `not-built`/`slice-island`——layout/token 分类要等真实骨架就位、mismatch 进入中段后才有信息量。
+默认分析 out 目录下的 `rebuilt-capture.png`(`--capture` 可覆盖)。对每个区域探测整数布局偏移(±4px,`--shift-radius` 可调)、均匀色差、位图类内容复杂度和"capture 侧为平色的未实现状态",输出 `calibration-plan.json` 和 `calibration-plan.md`,把区域按 pass 分组并附一句话动作("往回移 (-3, 0)"、"参考色 #ffffff 实现为 #fafaff")。分类基于容差后的 mismatch(`--tolerance`,默认 8),严格值并列报告——容差为 0 时字体/抗锯齿残差会把所有区域饱和到 ~100%,平移和色差探测会双双失明。判为 `slice-island` 的区域生成可直接合并的 `slice-manifest.suggested.json`;判为 `not-built` 的区域生成 `skeleton.suggested.css`(参考位置的容器 + 采样填充色),用来启动 layout pass。残余误差仅为抗锯齿级别的区域列为 converged,无需处理。迭代 0 时大部分区域会落在 `not-built`/`slice-island`——layout/token 分类要等真实骨架就位、mismatch 进入中段后才有信息量。
 
 分区指标默认开启(`--regions auto`):`lab-config.json` 里每个切片都有独立的 mismatch/MAE/max delta(切片 diff),输出目录里可选的 `regions.json` 可追加命名矩形(组件 diff)。区域结果按严重度降序写入 `pixel-diff-summary.json` 的 `regions` 字段;`--regions none` 关闭,也可传 JSON 文件路径。`regions.json` 的命名应与 `component-map.md` 的区域一致,让组件图、指标和 ledger 共用同一套词汇:
 

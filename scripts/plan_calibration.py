@@ -59,15 +59,17 @@ def crop(image: Image.Image, region: dict) -> Image.Image:
     )
 
 
-def diff_metrics(ref: Image.Image, cap: Image.Image) -> dict[str, float]:
+def diff_metrics(ref: Image.Image, cap: Image.Image, tolerance: int = 0) -> dict[str, float]:
     diff = ImageChops.difference(ref, cap)
     if np is not None:
         arr = np.asarray(diff, dtype=np.uint8)
         magnitude = arr.max(axis=2)
         count = magnitude.size
         big = int(np.count_nonzero(magnitude > AA_BIG_DELTA))
+        tolerant = int(np.count_nonzero(magnitude > tolerance))
         return {
             "mismatch_pct": round(float(np.count_nonzero(magnitude)) / count * 100, 4),
+            "mismatch_pct_tolerant": round(tolerant / count * 100, 4),
             "mae": round(float(arr.mean()), 4),
             "max_delta": int(magnitude.max()),
             "big_delta_fraction": round(big / count, 6),
@@ -78,22 +80,23 @@ def diff_metrics(ref: Image.Image, cap: Image.Image) -> dict[str, float]:
     count = magnitude.width * magnitude.height
     return {
         "mismatch_pct": round((count - histogram[0]) / count * 100, 4),
+        "mismatch_pct_tolerant": round(sum(histogram[tolerance + 1 :]) / count * 100, 4),
         "mae": round(sum(ImageStat.Stat(diff).mean) / 3, 4),
         "max_delta": magnitude.getextrema()[1],
         "big_delta_fraction": round(sum(histogram[AA_BIG_DELTA + 1 :]) / count, 6),
     }
 
 
-def probe_shift(ref: Image.Image, cap: Image.Image, radius: int) -> dict | None:
+def probe_shift(ref: Image.Image, cap: Image.Image, radius: int, tolerance: int) -> dict | None:
     """Find the integer offset of the capture content that best explains the mismatch."""
     width, height = ref.size
     if width <= 2 * radius or height <= 2 * radius:
         return None
     inner = ref.crop((radius, radius, width - radius, height - radius))
-    base = diff_metrics(inner, cap.crop((radius, radius, width - radius, height - radius)))
-    if base["mismatch_pct"] == 0:
+    base = diff_metrics(inner, cap.crop((radius, radius, width - radius, height - radius)), tolerance)
+    if base["mismatch_pct_tolerant"] == 0:
         return None
-    best = {"dx": 0, "dy": 0, "mismatch_pct": base["mismatch_pct"]}
+    best = {"dx": 0, "dy": 0, "mismatch_pct": base["mismatch_pct_tolerant"]}
     for dy in range(-radius, radius + 1):
         for dx in range(-radius, radius + 1):
             if dx == 0 and dy == 0:
@@ -101,14 +104,14 @@ def probe_shift(ref: Image.Image, cap: Image.Image, radius: int) -> dict | None:
             window = cap.crop(
                 (radius + dx, radius + dy, width - radius + dx, height - radius + dy)
             )
-            mismatch = diff_metrics(inner, window)["mismatch_pct"]
+            mismatch = diff_metrics(inner, window, tolerance)["mismatch_pct_tolerant"]
             if mismatch < best["mismatch_pct"]:
                 best = {"dx": dx, "dy": dy, "mismatch_pct": mismatch}
     if (best["dx"], best["dy"]) == (0, 0):
         return None
-    if best["mismatch_pct"] > base["mismatch_pct"] * SHIFT_IMPROVEMENT:
+    if best["mismatch_pct"] > base["mismatch_pct_tolerant"] * SHIFT_IMPROVEMENT:
         return None
-    return {**best, "base_mismatch_pct": base["mismatch_pct"]}
+    return {**best, "base_mismatch_pct": base["mismatch_pct_tolerant"]}
 
 
 def probe_uniform_color(ref: Image.Image, cap: Image.Image) -> dict | None:
@@ -170,21 +173,22 @@ def dominant_color(image: Image.Image) -> str:
     return hex_color(color)
 
 
-def classify(region: dict, ref: Image.Image, cap: Image.Image, shift_radius: int) -> dict:
+def classify(region: dict, ref: Image.Image, cap: Image.Image, shift_radius: int, tolerance: int) -> dict:
     ref_crop = crop(ref, region)
     cap_crop = crop(cap, region)
-    metrics = diff_metrics(ref_crop, cap_crop)
+    metrics = diff_metrics(ref_crop, cap_crop, tolerance)
     result = {**region, **metrics}
+    effective = metrics["mismatch_pct_tolerant"]
 
-    if metrics["mismatch_pct"] < ACTION_MISMATCH_PCT or (
+    if effective < ACTION_MISMATCH_PCT or (
         metrics["mae"] <= AA_MAX_MAE and metrics["big_delta_fraction"] <= AA_BIG_DELTA_FRACTION
     ):
         result["classification"] = "converged"
         result["action"] = "No action; remaining error is antialiasing-level noise."
         return result
 
-    if metrics["mismatch_pct"] >= SHIFT_PROBE_MISMATCH_PCT:
-        shift = probe_shift(ref_crop, cap_crop, shift_radius)
+    if effective >= SHIFT_PROBE_MISMATCH_PCT:
+        shift = probe_shift(ref_crop, cap_crop, shift_radius, tolerance)
         if shift:
             result["classification"] = "layout"
             result["evidence"] = shift
@@ -211,7 +215,7 @@ def classify(region: dict, ref: Image.Image, cap: Image.Image, shift_radius: int
     capture_std = flatness(cap_crop)
     reference_std = flatness(ref_crop)
     if (
-        metrics["mismatch_pct"] >= NOT_BUILT_MIN_MISMATCH_PCT
+        effective >= NOT_BUILT_MIN_MISMATCH_PCT
         and capture_std <= NOT_BUILT_MAX_STD
         and reference_std >= NOT_BUILT_MIN_REF_STD
     ):
@@ -272,10 +276,12 @@ def render_skeleton_css(regions: list[dict]) -> str:
 
 
 def render_markdown(plan: dict) -> str:
+    tolerance = plan["tolerance"]
     lines = [
         "# Calibration Plan",
         "",
-        f"Capture: `{plan['capture']}` | overall mismatch {plan['overall']['mismatch_pct']}% "
+        f"Capture: `{plan['capture']}` | tolerance {tolerance} | overall mismatch "
+        f"{plan['overall']['mismatch_pct_tolerant']}% (strict {plan['overall']['mismatch_pct']}%) "
         f"| MAE {plan['overall']['mae']}",
         "",
     ]
@@ -286,7 +292,10 @@ def render_markdown(plan: dict) -> str:
         lines.append(f"## {title}")
         lines.append("")
         for region in regions:
-            lines.append(f"- `{region['name']}` (mismatch {region['mismatch_pct']}%): {region['action']}")
+            lines.append(
+                f"- `{region['name']}` (mismatch {region['mismatch_pct_tolerant']}%, "
+                f"strict {region['mismatch_pct']}%): {region['action']}"
+            )
         lines.append("")
     converged = plan["converged"]
     lines.append(f"## Converged ({len(converged)} regions, no action)")
@@ -320,6 +329,14 @@ def main() -> None:
         help="Region sources, same semantics as pixel_diff.py: 'auto', 'none', or a JSON file path",
     )
     parser.add_argument("--shift-radius", type=int, default=4, help="Max layout shift to probe, in pixels")
+    parser.add_argument(
+        "--tolerance",
+        type=int,
+        default=8,
+        help="Ignore per-channel deltas <= N when classifying (default 8); strict values are always "
+        "reported alongside. Use 0 for strict-only classification — note that font/antialiasing noise "
+        "blinds the shift and color probes at 0",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir).expanduser().resolve()
@@ -347,13 +364,14 @@ def main() -> None:
         print("WARNING: no regions found (lab-config.json slices / regions.json); analyzing the full image as one region.")
         regions = [{"name": "full", "x": 0, "y": 0, "width": reference.size[0], "height": reference.size[1]}]
 
-    results = [classify(region, reference, capture, args.shift_radius) for region in regions]
-    results.sort(key=lambda item: -float(item["mismatch_pct"]))
+    results = [classify(region, reference, capture, args.shift_radius, args.tolerance) for region in regions]
+    results.sort(key=lambda item: -float(item["mismatch_pct_tolerant"]))
 
     plan = {
         "reference": str(reference_path),
         "capture": capture_path.name,
-        "overall": diff_metrics(reference, capture),
+        "tolerance": args.tolerance,
+        "overall": diff_metrics(reference, capture, args.tolerance),
         "passes": {key: [r for r in results if r["classification"] == key] for key, _ in PASSES},
         "converged": [r for r in results if r["classification"] == "converged"],
     }
@@ -391,7 +409,9 @@ def main() -> None:
             {
                 "out_dir": str(out_dir),
                 "capture": capture_path.name,
+                "tolerance": args.tolerance,
                 "overall_mismatch_pct": plan["overall"]["mismatch_pct"],
+                "overall_mismatch_pct_tolerant": plan["overall"]["mismatch_pct_tolerant"],
                 "plan": {key: len(value) for key, value in plan["passes"].items()},
                 "converged": len(plan["converged"]),
             },
