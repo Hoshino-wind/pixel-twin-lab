@@ -63,7 +63,7 @@ For the full image-to-component flow into an existing project, start with `scrip
 | `scripts/prepare_lab.py` | Build the workbench from a reference image, auto-detect component slices (`--full-bleed` for gradient/photo backgrounds, `--manifest` for hand-measured named slices on low-contrast UIs that threshold detection misses) |
 | `scripts/capture_modes.cjs` | Screenshot reference/rebuilt/exact modes in a real browser at native size, with `capture-meta.json` for attribution |
 | `scripts/pixel_diff.py` | Produce diff images and JSON metrics, including per-slice and named-region breakdowns |
-| `scripts/plan_calibration.py` | Turn per-region diffs into a four-pass repair plan (layout → tokens → slice islands → rebuild), classifying each region as component-fixable or slice-worthy |
+| `scripts/plan_calibration.py` | Turn per-region diffs into an ordered repair plan (skeleton → layout → tokens → slice islands → rebuild), with ready-to-use skeleton CSS and island manifest suggestions |
 | `scripts/init_component_flow.py` | Initialize a componentization run against a target project (contract, map, ledger) |
 
 ## Using it as an agent skill

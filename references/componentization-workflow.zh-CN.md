@@ -82,7 +82,7 @@
    - 静态几何稳定后，再加交互状态。
 6. 用与参考图相同的 viewport 捕获最终 App 路由。
 7. 对 App 截图运行 `pixel_diff.py`，或把 App 截图复制到 lab 作为 `rebuilt-capture.png`。第一轮校准前先验证零基线:lab 的 `reference` 截图与参考图 diff 必须是 `0%`——基线不为零是环境问题(viewport、色彩配置、字体、端口被占),不是 CSS 问题。分区指标(切片 + `regions.json`)会告诉你下一个该修哪个组件。
-8. 运行 `plan_calibration.py` 生成下一轮修复计划:它把每个未达标区域分类为布局偏移、token 色差、切片岛候选或重建,并按四个 pass 排序(layout → visual tokens → asset islands → region rebuild loop)。按 pass 顺序执行;出现岛区域时把 `slice-manifest.suggested.json` 合并进 slice manifest 并重跑 lab 准备。
+8. 运行 `plan_calibration.py` 生成下一轮修复计划:它把每个未达标区域分类为未实现、布局偏移、token 色差、切片岛候选或重建,按 pass 排序(skeleton → layout → visual tokens → asset islands → region rebuild loop)。按 pass 顺序执行;未实现区域用 `skeleton.suggested.css` 起骨架,出现岛区域时把 `slice-manifest.suggested.json` 合并进 slice manifest 并重跑 lab 准备。
 9. 每轮迭代在 `implementation-ledger.md` 中记录：
    - 修改过的文件
    - 截图路径

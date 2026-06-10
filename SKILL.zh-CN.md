@@ -34,7 +34,7 @@ description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证
 - 在相信任何 diff 数字之前,先用零基线证明环境可靠:截取 `reference` 模式并与参考图做 diff,必须是 `0%`。基线不为零说明渲染环境坏了(viewport 或 device scale 不对、色彩配置不是 sRGB、字体被替换、或者端口被别的服务占了)——先修环境,再碰重建代码。
 - 对代码组件无法忠实还原的区域——地图、照片、头像、复杂图表、Logo/装饰文字——采用混合策略:组件化只负责外壳、布局和交互,这些区域作为位图切片岛保留,在 `slice-manifest.json` 中声明,并在 ledger 里标注为 island。
 - 每个 run 只追一条保真度轨道:`bitmap exact`(允许位图切片和 SVG 复刻,`0%` 可达)或 `component faithful`(项目原生组件,允许少量残余误差)。交付时两套数字都报告,但不要用同一份产物同时追两个目标。
-- 每轮 diff 后运行 `plan_calibration.py`,把分区指标变成修复计划。它会把每个未达标区域分类为布局偏移、token 色差、切片岛候选或重建,并按四个 pass 排序:layout → visual tokens → asset islands → region rebuild loop。按这个顺序修——几何错会让后面所有对比满屏红,岛类内容应该切片,而不是反复重写代码。
+- 每轮 diff 后运行 `plan_calibration.py`,把分区指标变成修复计划。它会把每个未达标区域分类为未实现、布局偏移、token 色差、切片岛候选或重建,并按 pass 排序:skeleton → layout → visual tokens → asset islands → region rebuild loop。按这个顺序修——几何错会让后面所有对比满屏红,岛类内容应该切片,而不是反复重写代码。
 - 如果任务只是分析，不修改 App；只运行测量并报告可行性。
 - 如果任务是实现，先创建工作台，再围绕截图迭代代码重建。
 - 如果用户要求“全流程”或“组件化”，在写入最终产物前必须明确目标项目路径和项目内最终代码目录。
@@ -157,7 +157,7 @@ python /path/to/pixel-twin-lab/scripts/plan_calibration.py \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
 
-默认分析 out 目录下的 `rebuilt-capture.png`(`--capture` 可覆盖)。对每个区域探测整数布局偏移(±4px,`--shift-radius` 可调)、均匀色差和位图类内容复杂度,输出 `calibration-plan.json` 和 `calibration-plan.md`,把区域按四个 pass 分组并附一句话动作("往回移 (-3, 0)"、"参考色 #ffffff 实现为 #fafaff")。判为 `slice-island` 的区域会生成可直接合并的 `slice-manifest.suggested.json`。残余误差仅为抗锯齿级别的区域列为 converged,无需处理。
+默认分析 out 目录下的 `rebuilt-capture.png`(`--capture` 可覆盖)。对每个区域探测整数布局偏移(±4px,`--shift-radius` 可调)、均匀色差、位图类内容复杂度和"capture 侧为平色的未实现状态",输出 `calibration-plan.json` 和 `calibration-plan.md`,把区域按 pass 分组并附一句话动作("往回移 (-3, 0)"、"参考色 #ffffff 实现为 #fafaff")。判为 `slice-island` 的区域生成可直接合并的 `slice-manifest.suggested.json`;判为 `not-built` 的区域生成 `skeleton.suggested.css`(参考位置的容器 + 采样填充色),用来启动 layout pass。残余误差仅为抗锯齿级别的区域列为 converged,无需处理。迭代 0 时大部分区域会落在 `not-built`/`slice-island`——layout/token 分类要等真实骨架就位、mismatch 进入中段后才有信息量。
 
 分区指标默认开启(`--regions auto`):`lab-config.json` 里每个切片都有独立的 mismatch/MAE/max delta(切片 diff),输出目录里可选的 `regions.json` 可追加命名矩形(组件 diff)。区域结果按严重度降序写入 `pixel-diff-summary.json` 的 `regions` 字段;`--regions none` 关闭,也可传 JSON 文件路径。`regions.json` 的命名应与 `component-map.md` 的区域一致,让组件图、指标和 ledger 共用同一套词汇:
 
@@ -193,6 +193,7 @@ python /path/to/pixel-twin-lab/scripts/init_component_flow.py \
 - `pixel-diff-summary.json`(存在切片或 `regions.json` 时包含分区指标)
 - 每轮 `plan_calibration.py` 产出的 `calibration-plan.json` 和 `calibration-plan.md`
 - 可选的 `slice-manifest.suggested.json`,计划器建议的切片岛区域
+- 可选的 `skeleton.suggested.css`,为计划器判为未实现的区域生成骨架容器
 - 可选的 `slice-manifest.json`,记录手工测量的命名切片矩形
 - 可选的 `regions.json`,为组件 diff 命名矩形区域
 - 可选的交付报告 `design-qa.md`

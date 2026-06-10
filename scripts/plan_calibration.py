@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 
 try:
@@ -42,6 +43,10 @@ EDGE_THRESHOLD = 24
 AA_MAX_MAE = 1.5
 AA_BIG_DELTA = 24
 AA_BIG_DELTA_FRACTION = 0.005
+# Not built yet: the capture side is a near-uniform fill while the reference has real content.
+NOT_BUILT_MIN_MISMATCH_PCT = 50.0
+NOT_BUILT_MAX_STD = 6.0
+NOT_BUILT_MIN_REF_STD = 10.0
 
 
 def hex_color(rgb: tuple[float, float, float]) -> str:
@@ -145,6 +150,26 @@ def content_complexity(ref: Image.Image) -> dict:
     return {"edge_density": round(density, 4), "color_count": int(colors)}
 
 
+def flatness(image: Image.Image) -> float:
+    """Mean per-channel standard deviation; near zero means a uniform fill."""
+    return round(sum(ImageStat.Stat(image).stddev) / 3, 2)
+
+
+def dominant_color(image: Image.Image) -> str:
+    """Most common coarse color bucket, refined to the bucket's most common color — robust against text/content."""
+    small = image if image.width * image.height <= 65536 else image.resize((256, 256))
+    counted = small.getcolors(maxcolors=small.width * small.height) or []
+    buckets: Counter = Counter()
+    for count, (r, g, b) in counted:
+        buckets[(r // 16, g // 16, b // 16)] += count
+    winner = buckets.most_common(1)[0][0]
+    count, color = max(
+        (entry for entry in counted if (entry[1][0] // 16, entry[1][1] // 16, entry[1][2] // 16) == winner),
+        key=lambda entry: entry[0],
+    )
+    return hex_color(color)
+
+
 def classify(region: dict, ref: Image.Image, cap: Image.Image, shift_radius: int) -> dict:
     ref_crop = crop(ref, region)
     cap_crop = crop(cap, region)
@@ -170,16 +195,6 @@ def classify(region: dict, ref: Image.Image, cap: Image.Image, shift_radius: int
             )
             return result
 
-    color = probe_uniform_color(ref_crop, cap_crop)
-    if color:
-        result["classification"] = "token"
-        result["evidence"] = color
-        result["action"] = (
-            f"Uniform color offset: reference {color['reference_color']} vs build "
-            f"{color['capture_color']}; fix the token, not the layout."
-        )
-        return result
-
     complexity = content_complexity(ref_crop)
     if (
         complexity["edge_density"] >= ISLAND_EDGE_DENSITY
@@ -193,6 +208,37 @@ def classify(region: dict, ref: Image.Image, cap: Image.Image, shift_radius: int
         )
         return result
 
+    capture_std = flatness(cap_crop)
+    reference_std = flatness(ref_crop)
+    if (
+        metrics["mismatch_pct"] >= NOT_BUILT_MIN_MISMATCH_PCT
+        and capture_std <= NOT_BUILT_MAX_STD
+        and reference_std >= NOT_BUILT_MIN_REF_STD
+    ):
+        fill = dominant_color(ref_crop)
+        result["classification"] = "not-built"
+        result["evidence"] = {
+            "capture_color": dominant_color(cap_crop),
+            "capture_std": capture_std,
+            "reference_std": reference_std,
+            "reference_fill": fill,
+        }
+        result["action"] = (
+            f"Region is not built yet (capture is a flat {result['evidence']['capture_color']}); "
+            f"start with a container filled {fill} — see skeleton.suggested.css."
+        )
+        return result
+
+    color = probe_uniform_color(ref_crop, cap_crop)
+    if color:
+        result["classification"] = "token"
+        result["evidence"] = color
+        result["action"] = (
+            f"Uniform color offset: reference {color['reference_color']} vs build "
+            f"{color['capture_color']}; fix the token, not the layout."
+        )
+        return result
+
     result["classification"] = "rebuild"
     result["evidence"] = complexity
     result["action"] = "Structural mismatch; rebuild this region against the reference crop."
@@ -200,11 +246,29 @@ def classify(region: dict, ref: Image.Image, cap: Image.Image, shift_radius: int
 
 
 PASSES = [
+    ("not-built", "Pass 0 - Skeleton (regions not built yet)"),
     ("layout", "Pass 1 - Layout (geometry first)"),
     ("token", "Pass 2 - Visual tokens (colors, borders, shadows)"),
     ("slice-island", "Pass 3 - Asset islands (slice, do not componentize)"),
     ("rebuild", "Pass 4 - Region rebuild loop (worst first)"),
 ]
+
+
+def render_skeleton_css(regions: list[dict]) -> str:
+    lines = [
+        "/* Skeleton bootstrap for the lab rebuilt-layer (positions + reference fills).",
+        "   Lab/measuring aid only — final project code must follow the target project's conventions. */",
+        "",
+    ]
+    for region in regions:
+        name = str(region["name"]).replace(" ", "-")
+        lines.append(
+            f".region-{name} {{ position: absolute; left: {region['x']}px; top: {region['y']}px; "
+            f"width: {region['width']}px; height: {region['height']}px; "
+            f"background: {region['evidence']['reference_fill']}; }}"
+        )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def render_markdown(plan: dict) -> str:
@@ -229,6 +293,12 @@ def render_markdown(plan: dict) -> str:
     lines.append("")
     if converged:
         lines.append(", ".join(f"`{region['name']}`" for region in converged))
+        lines.append("")
+    if plan["passes"]["not-built"]:
+        lines.append(
+            "Skeleton CSS for unbuilt regions (positions + reference fills) written to "
+            "`skeleton.suggested.css`; paste it into the rebuilt layer to bootstrap the layout pass."
+        )
         lines.append("")
     if plan["passes"]["slice-island"]:
         lines.append(
@@ -308,6 +378,13 @@ def main() -> None:
         )
     elif suggested.exists():
         suggested.unlink()
+
+    skeleton = out_dir / "skeleton.suggested.css"
+    not_built = plan["passes"]["not-built"]
+    if not_built:
+        skeleton.write_text(render_skeleton_css(not_built), encoding="utf-8")
+    elif skeleton.exists():
+        skeleton.unlink()
 
     print(
         json.dumps(

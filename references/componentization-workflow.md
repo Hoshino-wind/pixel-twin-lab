@@ -82,7 +82,7 @@ If `project-dir` or `final-dir` is unclear, ask before writing final product fil
    - Add interaction states after static geometry is stable.
 6. Capture the final app route at the same viewport as the reference.
 7. Run `pixel_diff.py` against the app capture or copy the app capture into the lab as `rebuilt-capture.png`. Before the first calibration pass, verify the zero baseline: the lab's `reference` capture must diff `0%` against the reference — a nonzero baseline is an environment problem (viewport, color profile, fonts, wrong server), not a CSS problem. Per-region metrics (slices + `regions.json`) tell you which component to fix next.
-8. Run `plan_calibration.py` to generate the next-round repair plan: it classifies every imperfect region as a layout shift, token offset, slice-island candidate, or rebuild, and orders them into four passes (layout → visual tokens → asset islands → region rebuild loop). Follow the pass order; merge `slice-manifest.suggested.json` into the slice manifest and rerun lab preparation when island regions appear.
+8. Run `plan_calibration.py` to generate the next-round repair plan: it classifies every imperfect region as not built yet, a layout shift, a token offset, a slice-island candidate, or a rebuild, ordered into passes (skeleton → layout → visual tokens → asset islands → region rebuild loop). Follow the pass order; bootstrap unbuilt regions from `skeleton.suggested.css`, and merge `slice-manifest.suggested.json` into the slice manifest and rerun lab preparation when island regions appear.
 9. Record each iteration in `implementation-ledger.md`:
    - changed files
    - screenshot path
