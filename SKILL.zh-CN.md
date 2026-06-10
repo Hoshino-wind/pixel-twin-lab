@@ -34,6 +34,7 @@ description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证
 - 在相信任何 diff 数字之前,先用零基线证明环境可靠:截取 `reference` 模式并与参考图做 diff,必须是 `0%`。基线不为零说明渲染环境坏了(viewport 或 device scale 不对、色彩配置不是 sRGB、字体被替换、或者端口被别的服务占了)——先修环境,再碰重建代码。
 - 对代码组件无法忠实还原的区域——地图、照片、头像、复杂图表、Logo/装饰文字——采用混合策略:组件化只负责外壳、布局和交互,这些区域作为位图切片岛保留,在 `slice-manifest.json` 中声明,并在 ledger 里标注为 island。
 - 每个 run 只追一条保真度轨道:`bitmap exact`(允许位图切片和 SVG 复刻,`0%` 可达)或 `component faithful`(项目原生组件,允许少量残余误差)。交付时两套数字都报告,但不要用同一份产物同时追两个目标。
+- 每轮 diff 后运行 `plan_calibration.py`,把分区指标变成修复计划。它会把每个未达标区域分类为布局偏移、token 色差、切片岛候选或重建,并按四个 pass 排序:layout → visual tokens → asset islands → region rebuild loop。按这个顺序修——几何错会让后面所有对比满屏红,岛类内容应该切片,而不是反复重写代码。
 - 如果任务只是分析，不修改 App；只运行测量并报告可行性。
 - 如果任务是实现，先创建工作台，再围绕截图迭代代码重建。
 - 如果用户要求“全流程”或“组件化”，在写入最终产物前必须明确目标项目路径和项目内最终代码目录。
@@ -50,7 +51,8 @@ description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证
 5. 用本地 HTTP 服务运行 lab；避免 `file://`，因为浏览器工具可能会阻止访问。
 6. 使用 `scripts/capture_modes.cjs` 按源图片原生尺寸捕获 `reference`、`rebuilt`、`exact` 模式。
 7. 运行 `scripts/pixel_diff.py` 生成 diff 图片和 JSON 指标。
-8. 写一份简短 QA 结果：
+8. 运行 `scripts/plan_calibration.py` 生成 `calibration-plan.md`;下一轮迭代按其 pass 顺序执行(layout → tokens → islands → rebuild),出现 `slice-manifest.suggested.json` 时合并进你的 manifest。
+9. 写一份简短 QA 结果：
    - 源图片路径
    - 实现截图路径
    - viewport
@@ -147,6 +149,16 @@ python /path/to/pixel-twin-lab/scripts/pixel_diff.py \
 
 可选 `--tolerance N` 额外输出忽略单通道差值 `<= N` 的 mismatch(严格值始终保留);抗锯齿噪声占主导时可作为实际可收敛的目标。
 
+从最新 capture 生成校准计划:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/plan_calibration.py \
+  --reference /absolute/path/outputs/pixel-twin/assets/reference.png \
+  --out-dir /absolute/path/outputs/pixel-twin
+```
+
+默认分析 out 目录下的 `rebuilt-capture.png`(`--capture` 可覆盖)。对每个区域探测整数布局偏移(±4px,`--shift-radius` 可调)、均匀色差和位图类内容复杂度,输出 `calibration-plan.json` 和 `calibration-plan.md`,把区域按四个 pass 分组并附一句话动作("往回移 (-3, 0)"、"参考色 #ffffff 实现为 #fafaff")。判为 `slice-island` 的区域会生成可直接合并的 `slice-manifest.suggested.json`。残余误差仅为抗锯齿级别的区域列为 converged,无需处理。
+
 分区指标默认开启(`--regions auto`):`lab-config.json` 里每个切片都有独立的 mismatch/MAE/max delta(切片 diff),输出目录里可选的 `regions.json` 可追加命名矩形(组件 diff)。区域结果按严重度降序写入 `pixel-diff-summary.json` 的 `regions` 字段;`--regions none` 关闭,也可传 JSON 文件路径。`regions.json` 的命名应与 `component-map.md` 的区域一致,让组件图、指标和 ledger 共用同一套词汇:
 
 ```json
@@ -179,6 +191,8 @@ python /path/to/pixel-twin-lab/scripts/init_component_flow.py \
 - `capture-meta.json`
 - `*-diff.png`
 - `pixel-diff-summary.json`(存在切片或 `regions.json` 时包含分区指标)
+- 每轮 `plan_calibration.py` 产出的 `calibration-plan.json` 和 `calibration-plan.md`
+- 可选的 `slice-manifest.suggested.json`,计划器建议的切片岛区域
 - 可选的 `slice-manifest.json`,记录手工测量的命名切片矩形
 - 可选的 `regions.json`,为组件 diff 命名矩形区域
 - 可选的交付报告 `design-qa.md`
@@ -196,7 +210,7 @@ python /path/to/pixel-twin-lab/scripts/init_component_flow.py \
 
 - `0% mismatch`：浏览器截图与参考图像素完全一致。
 - `Exact Slice` 接近 `0%`：只在切片覆盖了所有非背景内容时成立。自动检测要求背景是均匀纯色,且阈值能抓到每个组件;低对比区域(如浅灰底上的白色卡片)低于阈值时会被背景色填充——改用手写 `slice-manifest.json`(gap 切片自动补全覆盖),或改用 `--full-bleed`。即使 `0%` 也只是位图重建,不是组件化。
-- `Rebuilt` mismatch 很高：第一轮常见;用分区指标驱动校准循环——修最差的区域、重新截图、重复——而不是肉眼看 diff 图猜。
+- `Rebuilt` mismatch 很高：第一轮常见;运行 `plan_calibration.py` 并按 pass 顺序修(layout → tokens → islands → rebuild),而不是肉眼看 diff 图或手工排序区域。
 - MAE 接近 `0` 但 mismatch 非零：通常是边缘抗锯齿、背景噪声或压缩类漂移。
 - max delta 很大：通常表示缺素材、颜色错误、空白区域、裁切错误或布局漂移。
 

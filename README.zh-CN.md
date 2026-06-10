@@ -63,6 +63,7 @@ diff 步骤会输出 `pixel-diff-summary.json`(整体及分区域的 mismatch / 
 | `scripts/prepare_lab.py` | 从参考图构建工作台,自动检测组件切片(渐变/照片背景用 `--full-bleed`;阈值检测漏掉的低对比 UI 用 `--manifest` 手工声明命名切片) |
 | `scripts/capture_modes.cjs` | 在真实浏览器中以原生尺寸截取 reference/rebuilt/exact 模式,并输出 `capture-meta.json` 以便溯源 |
 | `scripts/pixel_diff.py` | 生成差异图和 JSON 指标,含按切片和命名区域的细分 |
+| `scripts/plan_calibration.py` | 把分区域 diff 变成四 pass 修复计划(layout → tokens → 切片岛 → 重建),自动区分"组件可修"与"应切片" |
 | `scripts/init_component_flow.py` | 针对目标项目初始化组件化运行(contract、map、ledger) |
 
 ## 作为 agent skill 使用

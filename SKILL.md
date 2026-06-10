@@ -34,6 +34,7 @@ English is the default runtime language for this skill. The Chinese mirror is av
 - Before trusting any diff number, prove the environment with a zero baseline: capture `reference` mode and diff it against the reference image — it must be `0%`. A nonzero baseline means the rendering environment is broken (wrong viewport or device scale, color profile not sRGB, font substitution, or the wrong server/port answering), so fix the environment before touching the reconstruction.
 - For regions a coded component cannot faithfully reproduce — maps, photos, avatars, complex charts, logo/display text — use the hybrid strategy: componentize the shell, layout, and interactions, and keep those regions as bitmap slice islands declared in `slice-manifest.json` and marked as islands in the ledger.
 - Pick one fidelity track per run: `bitmap exact` (raster slices and SVG replicas allowed; `0%` is achievable) or `component faithful` (project-native components; small residual error is expected and acceptable). Report both numbers at handoff, but do not chase both targets with the same artifact.
+- After each diff round, run `plan_calibration.py` to turn per-region metrics into a repair plan. It classifies every imperfect region as a layout shift, a token offset, a slice-island candidate, or a rebuild, and orders them into four passes: layout → visual tokens → asset islands → region rebuild loop. Fix in that order — geometry errors make every later comparison red, and island content should be sliced, not endlessly re-coded.
 - If the task is only analysis, do not edit the app; run measurement and report feasibility.
 - If the task is implementation, create the workbench first, then iterate the coded reconstruction against screenshots.
 - If the user wants "full flow" or "componentization", require a target project path and project-relative final source directory before writing final product files.
@@ -50,7 +51,8 @@ English is the default runtime language for this skill. The Chinese mirror is av
 5. Serve the lab over local HTTP; avoid `file://` because browser tools may block it.
 6. Capture `reference`, `rebuilt`, and `exact` modes at the source image's native size with `scripts/capture_modes.cjs`.
 7. Run `scripts/pixel_diff.py` to create diff images and JSON metrics.
-8. Write a short QA result:
+8. Run `scripts/plan_calibration.py` to generate `calibration-plan.md`; follow its pass order (layout → tokens → islands → rebuild) for the next iteration, and merge `slice-manifest.suggested.json` into your manifest when it appears.
+9. Write a short QA result:
    - source path
    - implementation screenshot path
    - viewport
@@ -147,6 +149,16 @@ python /path/to/pixel-twin-lab/scripts/pixel_diff.py \
 
 Optional `--tolerance N` additionally reports mismatch ignoring per-channel deltas `<= N` (strict values are always included); useful as a practical convergence target when antialiasing noise dominates.
 
+Generate a calibration plan from the latest capture:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/plan_calibration.py \
+  --reference /absolute/path/outputs/pixel-twin/assets/reference.png \
+  --out-dir /absolute/path/outputs/pixel-twin
+```
+
+Defaults to `rebuilt-capture.png` in the out dir (`--capture` overrides). Per region it probes for an integer layout shift (±4px, `--shift-radius`), a uniform color offset, and raster-like content complexity, then writes `calibration-plan.json` and `calibration-plan.md` grouping regions into the four passes with one-line actions ("move by (-3, 0)", "reference #ffffff vs build #fafaff"). Regions classified `slice-island` are emitted as a ready-to-merge `slice-manifest.suggested.json`. Regions whose residue is antialiasing-level are listed as converged and need no action.
+
 Per-region metrics are on by default (`--regions auto`): every slice in `lab-config.json` gets its own mismatch/MAE/max-delta entry (slice diff), and an optional `regions.json` in the out dir adds named rectangles (component diff). Region results are sorted worst-first under `regions` in `pixel-diff-summary.json`; `--regions none` disables, or pass a JSON file path. Name `regions.json` entries after `component-map.md` regions so map, metrics, and ledger share one vocabulary:
 
 ```json
@@ -179,6 +191,8 @@ Create or update these artifacts:
 - `capture-meta.json`
 - `*-diff.png`
 - `pixel-diff-summary.json` (includes per-region metrics when slices or `regions.json` exist)
+- `calibration-plan.json` and `calibration-plan.md` after each `plan_calibration.py` round
+- optional `slice-manifest.suggested.json` with island regions proposed by the planner
 - optional `slice-manifest.json` with manually measured named slice rectangles
 - optional `regions.json` naming component-diff rectangles
 - optional `design-qa.md` for handoff
@@ -196,7 +210,7 @@ For full componentization, also create:
 
 - `0% mismatch`: the browser screenshot is pixel-identical to the reference.
 - `Exact Slice` near `0%`: only when the slices cover all non-background content. With auto detection that requires a uniform solid background and a threshold that catches every component; low-contrast regions (e.g. white cards on light gray) fall below the threshold and are filled with the background color instead — write a `slice-manifest.json` (gap slices complete the coverage), or use `--full-bleed`. Even at `0%` it is raster reconstruction, not componentized.
-- `Rebuilt` high mismatch: expected for a first pass; drive the calibration loop with the per-region metrics — fix the worst region, recapture, repeat — instead of eyeballing the diff image.
+- `Rebuilt` high mismatch: expected for a first pass; run `plan_calibration.py` and fix in pass order (layout → tokens → islands → rebuild) instead of eyeballing the diff image or hand-sorting regions.
 - MAE near `0` with nonzero mismatch: usually edge antialiasing, background noise, or compression-like drift.
 - Large max delta: usually missing assets, wrong colors, blank regions, wrong crop, or layout drift.
 
