@@ -30,6 +30,10 @@ description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证
 - 如果用户要求真实 App，使用 `Rebuilt` 模式构建组件，并用 diff 作为校准循环。
 - 如果参考图来自 AI 生成 UI，默认没有真实图层、token 或素材源；需要从位图中提取。
 - 如果 `prepare_lab.py` 警告背景不是均匀纯色(`lab-config.json` 中 `background_uniform: false`),先用 `--full-bleed` 重跑,再相信 exact 模式的数字。该警告是边框采样启发式;组件贴边也可能误触发。
+- 如果参考图是浅色、低对比或复杂仪表盘,且自动切片明显漏检或不完整(切片很少、`lab-config.json` 里 `coverage_pct` 偏低),不要反复调 `--threshold`。直接从参考图测量组件边界,手写 `slice-manifest.json`,用 `--manifest` 重跑。manifest 区域命名与 `component-map.md` 保持一致,让切片、指标和 ledger 共用同一套词汇。
+- 在相信任何 diff 数字之前,先用零基线证明环境可靠:截取 `reference` 模式并与参考图做 diff,必须是 `0%`。基线不为零说明渲染环境坏了(viewport 或 device scale 不对、色彩配置不是 sRGB、字体被替换、或者端口被别的服务占了)——先修环境,再碰重建代码。
+- 对代码组件无法忠实还原的区域——地图、照片、头像、复杂图表、Logo/装饰文字——采用混合策略:组件化只负责外壳、布局和交互,这些区域作为位图切片岛保留,在 `slice-manifest.json` 中声明,并在 ledger 里标注为 island。
+- 每个 run 只追一条保真度轨道:`bitmap exact`(允许位图切片和 SVG 复刻,`0%` 可达)或 `component faithful`(项目原生组件,允许少量残余误差)。交付时两套数字都报告,但不要用同一份产物同时追两个目标。
 - 如果任务只是分析，不修改 App；只运行测量并报告可行性。
 - 如果任务是实现，先创建工作台，再围绕截图迭代代码重建。
 - 如果用户要求“全流程”或“组件化”，在写入最终产物前必须明确目标项目路径和项目内最终代码目录。
@@ -52,6 +56,7 @@ description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证
    - viewport
    - mismatch 百分比、MAE、max delta
    - 分区指标中最差的区域
+   - 保真度轨道(`component faithful` 或 `bitmap exact`)及切片岛区域清单
    - 阻塞项或最终通过状态
 
 ## 全流程组件化
@@ -104,6 +109,17 @@ python /path/to/pixel-twin-lab/scripts/prepare_lab.py \
 
 加 `--full-bleed` 可把整张参考图作为单一切片(渐变/照片类背景)。超过约 2MP 的图会自动在降采样副本上做检测,切片坐标映射回原生尺寸。
 
+用手工 slice manifest 准备 lab(阈值检测漏组件的低对比 UI):
+
+```bash
+python /path/to/pixel-twin-lab/scripts/prepare_lab.py \
+  --reference /absolute/path/reference.png \
+  --out-dir /absolute/path/outputs/pixel-twin \
+  --manifest /absolute/path/slice-manifest.json
+```
+
+manifest 与 `regions.json` 同形(`slices` 或 `regions` 键,或裸数组;每项 `{"name", "x", "y", "width", "height"}`,name 可选),会完全取代基于阈值的自动检测。manifest 未覆盖的画布区域会自动生成 `gap-*` 切片补齐,保证任何背景下 exact 模式都完整;`--no-cover-gaps` 可关闭。命名切片的 `name` 会写进 `lab-config.json` 并自动进入分区 diff 指标。`lab-config.json` 同时记录 `slice_source`(`auto`/`manifest`/`full-bleed`/`none`)和 `coverage_pct`。
+
 启动本地服务：
 
 ```bash
@@ -119,7 +135,7 @@ node /path/to/pixel-twin-lab/scripts/capture_modes.cjs \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
 
-`--browser bundled|system` 选择 Playwright 自带 Chromium 或系统 Chrome(用 `playwright-core` 时默认 `system`)。每次运行会写出 `capture-meta.json`,记录浏览器版本和 viewport,便于跨机器对比时归因。
+`--browser bundled|system` 选择 Playwright 自带 Chromium 或系统 Chrome(用 `playwright-core` 时默认 `system`)。Chromium 启动时强制 sRGB 色彩配置,避免截图继承显示器配置导致整图颜色漂移(macOS 上尤其明显)。每次运行会写出 `capture-meta.json`,记录浏览器版本、色彩配置和 viewport,便于跨机器对比时归因。
 
 生成 diff 指标：
 
@@ -147,20 +163,23 @@ python /path/to/pixel-twin-lab/scripts/init_component_flow.py \
   --name short-run-name
 ```
 
+加 `--manifest /absolute/path/slice-manifest.json`(可选配 `--no-cover-gaps`)可把手工 slice manifest 透传给 lab 准备步骤。
+
 ## 输出契约
 
 创建或更新这些产物：
 
 - `index.html`、`styles.css`、`script.js`
 - `assets/reference.png`
-- 自动检测到切片时的 `assets/slice-*.png`
-- `lab-config.json`(含 `background_uniform`)
+- 自动检测、manifest 定义或 gap 补齐产生的 `assets/slice-*.png`
+- `lab-config.json`(含 `background_uniform`、`slice_source`、`coverage_pct`;manifest 切片带 `name`)
 - `reference-capture.png`
 - `rebuilt-capture.png`
 - `exact-capture.png`
 - `capture-meta.json`
 - `*-diff.png`
 - `pixel-diff-summary.json`(存在切片或 `regions.json` 时包含分区指标)
+- 可选的 `slice-manifest.json`,记录手工测量的命名切片矩形
 - 可选的 `regions.json`,为组件 diff 命名矩形区域
 - 可选的交付报告 `design-qa.md`
 
@@ -176,7 +195,7 @@ python /path/to/pixel-twin-lab/scripts/init_component_flow.py \
 ## 保真度解读
 
 - `0% mismatch`：浏览器截图与参考图像素完全一致。
-- `Exact Slice` 接近 `0%`：只在切片覆盖了所有非背景内容时成立——这要求背景是均匀纯色,且阈值能抓到每个组件。低对比区域(如浅灰底上的白色卡片)低于阈值时会被背景色填充;可调低 `--threshold` 或改用 `--full-bleed`。即使 `0%` 也只是位图重建,不是组件化。
+- `Exact Slice` 接近 `0%`：只在切片覆盖了所有非背景内容时成立。自动检测要求背景是均匀纯色,且阈值能抓到每个组件;低对比区域(如浅灰底上的白色卡片)低于阈值时会被背景色填充——改用手写 `slice-manifest.json`(gap 切片自动补全覆盖),或改用 `--full-bleed`。即使 `0%` 也只是位图重建,不是组件化。
 - `Rebuilt` mismatch 很高：第一轮常见;用分区指标驱动校准循环——修最差的区域、重新截图、重复——而不是肉眼看 diff 图猜。
 - MAE 接近 `0` 但 mismatch 非零：通常是边缘抗锯齿、背景噪声或压缩类漂移。
 - max delta 很大：通常表示缺素材、颜色错误、空白区域、裁切错误或布局漂移。
@@ -187,6 +206,10 @@ python /path/to/pixel-twin-lab/scripts/init_component_flow.py \
 
 - 用源图原生尺寸作为截图 viewport。
 - 保持 `deviceScaleFactor: 1`，确保截图数学稳定。
+- 先调几何再调颜色:先对齐画布尺寸、边距、卡片位置、列宽和行高——布局漂 2px,所有颜色对比都会满屏红。
+- 颜色从参考图位图采样(背景、边框、卡片底色、文字、阴影),统一沉淀为项目样式体系里的 token;绝不凭感觉写色值。
+- 字体是组件化误差的最大来源:显式锁定 family、字重、字号和 line-height。AI 生成的参考图很少用标准字体,文字只能逼近——某个文字区域不再收敛时,把它转成 SVG 或切片岛,并记入 ledger。
+- 图表:走 bitmap-exact 轨道时用 SVG path/rect 复刻,因为图表库自带的轴线、抗锯齿和点位都会不一样;走 component-faithful 轨道时用项目已有的图表库。
 - 生成报告时使用绝对路径。
 - 除了通过 `?capture=1`，不要隐藏 reference overlay 或工具栏。
 - 针对具体 repo 调整流程时，把临时捕获脚本放在 `work/`。

@@ -247,6 +247,12 @@ def main() -> None:
     parser.add_argument("--threshold", type=int, default=70, help="Initial prepare_lab foreground threshold")
     parser.add_argument("--min-area", type=int, default=10000, help="Initial prepare_lab min component area")
     parser.add_argument("--max-slices", type=int, default=12, help="Initial prepare_lab max slices")
+    parser.add_argument("--manifest", help="Slice manifest JSON passed through to prepare_lab (replaces auto detection)")
+    parser.add_argument(
+        "--no-cover-gaps",
+        action="store_true",
+        help="With --manifest, do not generate gap slices for uncovered canvas area",
+    )
     args = parser.parse_args()
 
     reference = Path(args.reference).expanduser().resolve()
@@ -276,23 +282,28 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     prepare_script = skill_root / "scripts" / "prepare_lab.py"
-    subprocess.run(
-        [
-            sys.executable,
-            str(prepare_script),
-            "--reference",
-            str(reference),
-            "--out-dir",
-            str(lab_dir),
-            "--threshold",
-            str(args.threshold),
-            "--min-area",
-            str(args.min_area),
-            "--max-slices",
-            str(args.max_slices),
-        ],
-        check=True,
-    )
+    prepare_args = [
+        sys.executable,
+        str(prepare_script),
+        "--reference",
+        str(reference),
+        "--out-dir",
+        str(lab_dir),
+        "--threshold",
+        str(args.threshold),
+        "--min-area",
+        str(args.min_area),
+        "--max-slices",
+        str(args.max_slices),
+    ]
+    if args.manifest:
+        manifest = Path(args.manifest).expanduser().resolve()
+        if not manifest.exists():
+            raise SystemExit(f"Manifest file does not exist: {manifest}")
+        prepare_args += ["--manifest", str(manifest)]
+        if args.no_cover_gaps:
+            prepare_args.append("--no-cover-gaps")
+    subprocess.run(prepare_args, check=True)
 
     contract = {
         "created_at": datetime.now(timezone.utc).isoformat(),

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 from collections import Counter, deque
 from pathlib import Path
@@ -158,6 +159,96 @@ def copy_template(skill_root: Path, out_dir: Path) -> None:
         shutil.copy2(template / name, out_dir / name)
 
 
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug
+
+
+def load_manifest(path: Path, width: int, height: int) -> list[dict[str, object]]:
+    """Parse a slice manifest: {"slices": [...]}, {"regions": [...]}, or a bare list of rects."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data, dict):
+        entries = data.get("slices", data.get("regions"))
+        if entries is None:
+            raise SystemExit(f"Manifest {path} must contain a 'slices' or 'regions' array (or be a bare array).")
+    else:
+        entries = data
+    if not isinstance(entries, list) or not entries:
+        raise SystemExit(f"Manifest {path} contains no slice entries.")
+
+    rects: list[dict[str, object]] = []
+    errors: list[str] = []
+    for index, entry in enumerate(entries, start=1):
+        try:
+            x, y = int(entry["x"]), int(entry["y"])
+            w, h = int(entry["width"]), int(entry["height"])
+        except (KeyError, TypeError, ValueError):
+            errors.append(f"entry {index}: requires integer x, y, width, height ({entry!r})")
+            continue
+        clamped_x, clamped_y = max(0, x), max(0, y)
+        w = min(x + w, width) - clamped_x
+        h = min(y + h, height) - clamped_y
+        if w <= 0 or h <= 0:
+            errors.append(f"entry {index}: empty after clamping to {width}x{height} canvas ({entry!r})")
+            continue
+        rect: dict[str, object] = {"x": clamped_x, "y": clamped_y, "width": w, "height": h}
+        name = str(entry.get("name", "")).strip()
+        if name:
+            rect["name"] = name
+        rects.append(rect)
+    if errors:
+        raise SystemExit("Invalid manifest entries:\n" + "\n".join(f"  - {error}" for error in errors))
+    return rects
+
+
+def uncovered_rects(rects: list[dict[str, object]], width: int, height: int) -> list[dict[str, int]]:
+    """Decompose the canvas area not covered by rects into row bands of uncovered x-intervals,
+    merging vertically adjacent bands with identical intervals."""
+    breaks = {0, height}
+    for rect in rects:
+        breaks.add(int(rect["y"]))
+        breaks.add(int(rect["y"]) + int(rect["height"]))
+    ys = sorted(y for y in breaks if 0 <= y <= height)
+
+    bands: list[tuple[int, int, tuple[tuple[int, int], ...]]] = []
+    for y0, y1 in zip(ys, ys[1:]):
+        covered = sorted(
+            (int(r["x"]), int(r["x"]) + int(r["width"]))
+            for r in rects
+            if int(r["y"]) <= y0 and int(r["y"]) + int(r["height"]) >= y1
+        )
+        uncovered: list[tuple[int, int]] = []
+        cursor = 0
+        for x0, x1 in covered:
+            if x0 > cursor:
+                uncovered.append((cursor, min(x0, width)))
+            cursor = max(cursor, x1)
+            if cursor >= width:
+                break
+        if cursor < width:
+            uncovered.append((cursor, width))
+        bands.append((y0, y1, tuple(uncovered)))
+
+    merged: list[dict[str, int]] = []
+    open_band: tuple[int, int, tuple[tuple[int, int], ...]] | None = None
+    for y0, y1, intervals in bands:
+        if open_band and open_band[1] == y0 and open_band[2] == intervals:
+            open_band = (open_band[0], y1, intervals)
+            continue
+        if open_band:
+            merged.extend(
+                {"x": x0, "y": open_band[0], "width": x1 - x0, "height": open_band[1] - open_band[0]}
+                for x0, x1 in open_band[2]
+            )
+        open_band = (y0, y1, intervals)
+    if open_band:
+        merged.extend(
+            {"x": x0, "y": open_band[0], "width": x1 - x0, "height": open_band[1] - open_band[0]}
+            for x0, x1 in open_band[2]
+        )
+    return merged
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", required=True, help="Absolute path to the source UI image")
@@ -166,6 +257,16 @@ def main() -> None:
     parser.add_argument("--min-area", type=int, default=10000, help="Minimum connected-component area to slice")
     parser.add_argument("--max-slices", type=int, default=12, help="Maximum auto-detected slices")
     parser.add_argument("--no-detect", action="store_true", help="Skip auto slice detection")
+    parser.add_argument(
+        "--manifest",
+        help="JSON file of named slice rectangles ({'slices': [{name, x, y, width, height}, ...]}, "
+        "same shape as regions.json); replaces threshold-based auto detection",
+    )
+    parser.add_argument(
+        "--no-cover-gaps",
+        action="store_true",
+        help="With --manifest, do not generate gap slices for canvas area the manifest leaves uncovered",
+    )
     parser.add_argument(
         "--full-bleed",
         action="store_true",
@@ -200,6 +301,7 @@ def main() -> None:
 
     slices: list[dict[str, object]] = []
     if args.full_bleed:
+        slice_source = "full-bleed"
         filename = "slice-01.png"
         image.save(assets_dir / filename)
         slices.append(
@@ -212,7 +314,34 @@ def main() -> None:
                 "area": width * height,
             }
         )
+    elif args.manifest:
+        slice_source = "manifest"
+        manifest_path = Path(args.manifest).expanduser().resolve()
+        if not manifest_path.exists():
+            raise SystemExit(f"Manifest file does not exist: {manifest_path}")
+        rects = load_manifest(manifest_path, width, height)
+        if not args.no_cover_gaps:
+            gaps = uncovered_rects(rects, width, height)
+            rects.extend({**gap, "name": f"gap-{index:02d}"} for index, gap in enumerate(gaps, start=1))
+        for index, rect in enumerate(rects, start=1):
+            x, y = int(rect["x"]), int(rect["y"])
+            w, h = int(rect["width"]), int(rect["height"])
+            slug = slugify(str(rect.get("name", "")))
+            filename = f"slice-{index:02d}-{slug}.png" if slug else f"slice-{index:02d}.png"
+            image.crop((x, y, x + w, y + h)).save(assets_dir / filename)
+            entry: dict[str, object] = {
+                "src": f"./assets/{filename}",
+                "x": x,
+                "y": y,
+                "width": w,
+                "height": h,
+                "area": w * h,
+            }
+            if rect.get("name"):
+                entry["name"] = rect["name"]
+            slices.append(entry)
     elif not args.no_detect:
+        slice_source = "auto"
         components = detect_components(image, bg, args.threshold, args.min_area, args.max_slices)
         for index, component in enumerate(components, start=1):
             x = int(component["x"])
@@ -231,6 +360,18 @@ def main() -> None:
                     "area": int(component["area"]),
                 }
             )
+    else:
+        slice_source = "none"
+
+    uncovered_area = sum(
+        rect["width"] * rect["height"] for rect in uncovered_rects(slices, width, height)
+    )
+    coverage_pct = round((1 - uncovered_area / (width * height)) * 100, 2)
+    if args.manifest and args.no_cover_gaps and coverage_pct < 100:
+        print(
+            f"WARNING: manifest slices cover {coverage_pct}% of the canvas; exact mode will show "
+            "the background fill in uncovered areas. Drop --no-cover-gaps to add gap slices.",
+        )
 
     config = {
         "source": str(reference_path),
@@ -238,6 +379,8 @@ def main() -> None:
         "height": height,
         "background": hex_color(bg),
         "background_uniform": background_uniform,
+        "slice_source": slice_source,
+        "coverage_pct": coverage_pct,
         "slices": slices,
     }
     (out_dir / "lab-config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -249,6 +392,8 @@ def main() -> None:
                 "width": width,
                 "height": height,
                 "background_uniform": background_uniform,
+                "slice_source": slice_source,
+                "coverage_pct": coverage_pct,
                 "slices": len(slices),
             },
             indent=2,

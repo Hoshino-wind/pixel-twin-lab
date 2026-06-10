@@ -72,14 +72,16 @@ If `project-dir` or `final-dir` is unclear, ask before writing final product fil
    - charts/cards/content lists
    - empty/loading/error states if needed
    Mirror these region names in a `regions.json` next to the lab captures so `pixel_diff.py` reports component-level metrics under the same vocabulary.
+   For light, low-contrast, or complex dashboards where auto slice detection misses components, also write a `slice-manifest.json` with the same region names and rerun lab preparation with `--manifest` — manual slices plus auto-generated gap slices keep exact mode complete and give every named region its own diff metric.
 5. Build in slices:
-   - Start with page shell and layout geometry.
-   - Add typography and tokens.
+   - Start with page shell and layout geometry — calibrate geometry before color; a 2px layout drift turns every color comparison red.
+   - Add typography and tokens; sample every color from the reference bitmap and reuse the project's existing tokens before creating new ones.
    - Add repeated components.
+   - Keep maps, photos, avatars, complex charts, and logo/display text as bitmap slice islands instead of forcing them into components; the component layer owns their containers, layout, and interactions.
    - Add image assets only where source imagery cannot be represented as code.
    - Add interaction states after static geometry is stable.
 6. Capture the final app route at the same viewport as the reference.
-7. Run `pixel_diff.py` against the app capture or copy the app capture into the lab as `rebuilt-capture.png`. Per-region metrics (slices + `regions.json`) tell you which component to fix next.
+7. Run `pixel_diff.py` against the app capture or copy the app capture into the lab as `rebuilt-capture.png`. Before the first calibration pass, verify the zero baseline: the lab's `reference` capture must diff `0%` against the reference — a nonzero baseline is an environment problem (viewport, color profile, fonts, wrong server), not a CSS problem. Per-region metrics (slices + `regions.json`) tell you which component to fix next.
 8. Record each iteration in `implementation-ledger.md`:
    - changed files
    - screenshot path
@@ -101,6 +103,7 @@ If `project-dir` or `final-dir` is unclear, ask before writing final product fil
 - Follow the project's framework and style system instead of forcing the lab template into production.
 - Keep only project-used assets in final source; leave reference images and slices in the intermediate run folder.
 - If a perfect-pixel result uses raster slices, label it as "bitmap-perfect" and do not call it a maintainable component implementation.
+- Report two metrics at handoff: `component faithful` (coded reconstruction only) and `bitmap exact` (with slice islands applied), plus the list of regions kept as islands.
 - If a component implementation remains visually different, report the exact mismatch and next calibration step.
 
 ## Handoff Checklist

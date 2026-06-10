@@ -82,7 +82,9 @@ async function launchBrowser(args) {
   const { chromium, package: playwrightPackage } = requirePlaywright();
   // playwright-core has no bundled browser, so it implies the system browser.
   const channel = String(args.browser || (playwrightPackage === "playwright" ? "bundled" : "system"));
-  const launchOptions = { headless: true };
+  // Without a forced sRGB profile, screenshots inherit the display color profile
+  // (especially on macOS) and every pixel drifts against the reference.
+  const launchOptions = { headless: true, args: ["--force-color-profile=srgb"] };
 
   if (channel === "system") {
     const executablePath = chromePath();
@@ -137,6 +139,7 @@ async function main() {
     browser_version: browser.version(),
     executable_path: executablePath,
     platform: process.platform,
+    color_profile: "srgb",
     viewport: { width, height, deviceScaleFactor: 1 },
     modes,
   };

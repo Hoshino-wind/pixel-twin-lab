@@ -30,6 +30,10 @@ English is the default runtime language for this skill. The Chinese mirror is av
 - If the user asks for a real app, build components in `Rebuilt` mode and use the diff as a calibration loop.
 - If the reference is an AI-generated UI image, assume there are no real layers, tokens, or asset sources; extract them from the bitmap.
 - If `prepare_lab.py` warns that the background is not a uniform solid color (`background_uniform: false` in `lab-config.json`), rerun with `--full-bleed` before trusting exact-mode numbers. The warning is a border-sampling heuristic; a component touching the image edge can also trigger it.
+- If the reference is a light, low-contrast, or complex dashboard and auto-detected slices are missing or obviously incomplete (few slices, low `coverage_pct` in `lab-config.json`), do not keep tuning `--threshold`. Measure component bounds from the reference image, write a `slice-manifest.json`, and rerun with `--manifest`. Name manifest regions after `component-map.md` regions so slices, metrics, and the ledger share one vocabulary.
+- Before trusting any diff number, prove the environment with a zero baseline: capture `reference` mode and diff it against the reference image — it must be `0%`. A nonzero baseline means the rendering environment is broken (wrong viewport or device scale, color profile not sRGB, font substitution, or the wrong server/port answering), so fix the environment before touching the reconstruction.
+- For regions a coded component cannot faithfully reproduce — maps, photos, avatars, complex charts, logo/display text — use the hybrid strategy: componentize the shell, layout, and interactions, and keep those regions as bitmap slice islands declared in `slice-manifest.json` and marked as islands in the ledger.
+- Pick one fidelity track per run: `bitmap exact` (raster slices and SVG replicas allowed; `0%` is achievable) or `component faithful` (project-native components; small residual error is expected and acceptable). Report both numbers at handoff, but do not chase both targets with the same artifact.
 - If the task is only analysis, do not edit the app; run measurement and report feasibility.
 - If the task is implementation, create the workbench first, then iterate the coded reconstruction against screenshots.
 - If the user wants "full flow" or "componentization", require a target project path and project-relative final source directory before writing final product files.
@@ -52,6 +56,7 @@ English is the default runtime language for this skill. The Chinese mirror is av
    - viewport
    - mismatch percentage, MAE, max delta
    - worst regions from the per-region metrics
+   - fidelity track (`component faithful` or `bitmap exact`) and the list of slice-island regions
    - blocker list or final pass status
 
 ## Full Componentization Workflow
@@ -104,6 +109,17 @@ python /path/to/pixel-twin-lab/scripts/prepare_lab.py \
 
 Add `--full-bleed` to use the whole reference as a single slice (gradient/photo backgrounds). Images above ~2MP are detected on a downsampled copy automatically; slice coordinates are mapped back to native size.
 
+Prepare a lab with a manual slice manifest (low-contrast UIs where threshold detection misses components):
+
+```bash
+python /path/to/pixel-twin-lab/scripts/prepare_lab.py \
+  --reference /absolute/path/reference.png \
+  --out-dir /absolute/path/outputs/pixel-twin \
+  --manifest /absolute/path/slice-manifest.json
+```
+
+The manifest has the same shape as `regions.json` (a `slices` or `regions` key, or a bare array; each entry `{"name", "x", "y", "width", "height"}`, name optional). It replaces threshold-based auto detection entirely. Canvas area the manifest leaves uncovered is filled with auto-generated `gap-*` slices so exact mode stays complete on any background; pass `--no-cover-gaps` to disable. Named slices carry their `name` into `lab-config.json` and flow into per-region diff metrics automatically. `lab-config.json` records `slice_source` (`auto`/`manifest`/`full-bleed`/`none`) and `coverage_pct`.
+
 Serve the lab:
 
 ```bash
@@ -119,7 +135,7 @@ node /path/to/pixel-twin-lab/scripts/capture_modes.cjs \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
 
-`--browser bundled|system` picks Playwright's bundled Chromium or a system Chrome (`playwright-core` implies `system`). The run writes `capture-meta.json` with the browser version and viewport so cross-machine diffs stay attributable.
+`--browser bundled|system` picks Playwright's bundled Chromium or a system Chrome (`playwright-core` implies `system`). Chromium is launched with a forced sRGB color profile so captures do not inherit the display profile (otherwise every pixel drifts, especially on macOS). The run writes `capture-meta.json` with the browser version, color profile, and viewport so cross-machine diffs stay attributable.
 
 Generate diff metrics:
 
@@ -147,20 +163,23 @@ python /path/to/pixel-twin-lab/scripts/init_component_flow.py \
   --name short-run-name
 ```
 
+Pass `--manifest /absolute/path/slice-manifest.json` (and optionally `--no-cover-gaps`) to forward a manual slice manifest to the lab preparation step.
+
 ## Output Contract
 
 Create or update these artifacts:
 
 - `index.html`, `styles.css`, `script.js`
 - `assets/reference.png`
-- `assets/slice-*.png` when slices are detected
-- `lab-config.json` (includes `background_uniform`)
+- `assets/slice-*.png` when slices are detected, manifest-defined, or gap-generated
+- `lab-config.json` (includes `background_uniform`, `slice_source`, `coverage_pct`; manifest slices carry `name`)
 - `reference-capture.png`
 - `rebuilt-capture.png`
 - `exact-capture.png`
 - `capture-meta.json`
 - `*-diff.png`
 - `pixel-diff-summary.json` (includes per-region metrics when slices or `regions.json` exist)
+- optional `slice-manifest.json` with manually measured named slice rectangles
 - optional `regions.json` naming component-diff rectangles
 - optional `design-qa.md` for handoff
 
@@ -176,7 +195,7 @@ For full componentization, also create:
 ## Fidelity Interpretation
 
 - `0% mismatch`: the browser screenshot is pixel-identical to the reference.
-- `Exact Slice` near `0%`: only when the slices cover all non-background content — that requires a uniform solid background and a threshold that catches every component. Low-contrast regions (e.g. white cards on light gray) fall below the threshold and are filled with the background color instead; lower `--threshold` or use `--full-bleed`. Even at `0%` it is raster reconstruction, not componentized.
+- `Exact Slice` near `0%`: only when the slices cover all non-background content. With auto detection that requires a uniform solid background and a threshold that catches every component; low-contrast regions (e.g. white cards on light gray) fall below the threshold and are filled with the background color instead — write a `slice-manifest.json` (gap slices complete the coverage), or use `--full-bleed`. Even at `0%` it is raster reconstruction, not componentized.
 - `Rebuilt` high mismatch: expected for a first pass; drive the calibration loop with the per-region metrics — fix the worst region, recapture, repeat — instead of eyeballing the diff image.
 - MAE near `0` with nonzero mismatch: usually edge antialiasing, background noise, or compression-like drift.
 - Large max delta: usually missing assets, wrong colors, blank regions, wrong crop, or layout drift.
@@ -187,6 +206,10 @@ Never claim one-pixel success from visual inspection alone. Use screenshot compa
 
 - Use native image dimensions as the capture viewport.
 - Keep `deviceScaleFactor: 1` for deterministic screenshot math.
+- Calibrate geometry before color: align canvas size, margins, card positions, column widths, and line heights first — a 2px layout drift turns every color comparison red.
+- Sample colors from the reference bitmap (background, borders, card fills, text, shadows) and centralize them as tokens in the project's style system; never write colors by eye.
+- Fonts are the largest componentization error source: pin family, weight, size, and line-height explicitly. AI-generated references rarely use a standard font, so text can only be approximated — when a text region stops converging, turn it into an SVG or slice island and record that in the ledger.
+- Charts: on the bitmap-exact track replicate with SVG paths/rects, because chart libraries impose their own axes, antialiasing, and point placement; on the component-faithful track use the project's existing chart library.
 - Use absolute paths in generated reports.
 - Do not hide reference overlays or toolbars in capture except through `?capture=1`.
 - Keep temporary capture scripts in `work/` when adapting the workflow for a repo.
