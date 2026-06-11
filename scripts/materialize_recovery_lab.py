@@ -7,6 +7,7 @@ import argparse
 import html
 import json
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -23,16 +24,26 @@ def asset_src(asset: str | None, recovery_dir_name: str) -> str | None:
     return f"./{recovery_dir_name}/{asset}"
 
 
-def render_rebuilt_layer(report: dict[str, Any], recovery_dir_name: str) -> str:
+def render_rebuilt_layer(
+    report: dict[str, Any], recovery_dir_name: str, asset_tracks: set[str] | None
+) -> tuple[str, list[str]]:
     lines = [
         '          <div class="pt-recovery" aria-label="Recovery materialized rebuilt layer">',
     ]
+    skipped_assets: list[str] = []
     for region in report.get("regions", []):
         name = html.escape(str(region.get("name", "region")), quote=True)
-        track = html.escape(str(region.get("track", "component")), quote=True)
-        provider = html.escape(str(region.get("asset_provider", "none")), quote=True)
-        strategy = html.escape(str(region.get("asset_strategy", "none")), quote=True)
+        raw_track = str(region.get("track", "component"))
+        track = html.escape(raw_track, quote=True)
         asset = asset_src(region.get("asset"), recovery_dir_name)
+        if asset and asset_tracks is not None and raw_track not in asset_tracks:
+            skipped_assets.append(str(region.get("name", "region")))
+            asset = None
+        if asset:
+            provider = html.escape(str(region.get("asset_provider", "none")), quote=True)
+            strategy = html.escape(str(region.get("asset_strategy", "none")), quote=True)
+        else:
+            provider = strategy = "none"
         has_asset = "true" if asset else "false"
         lines.append(
             f'            <section class="pt-region pt-region--{name}" data-track="{track}" '
@@ -43,11 +54,11 @@ def render_rebuilt_layer(report: dict[str, Any], recovery_dir_name: str) -> str:
             lines.append(f'              <img src="{html.escape(asset, quote=True)}" alt="" draggable="false" />')
         lines.append("            </section>")
     lines.append("          </div>")
-    return "\n".join(lines)
+    return "\n".join(lines), skipped_assets
 
 
-def render_index(report: dict[str, Any], recovery_dir_name: str) -> str:
-    rebuilt_layer = render_rebuilt_layer(report, recovery_dir_name)
+def render_index(report: dict[str, Any], recovery_dir_name: str, asset_tracks: set[str] | None) -> tuple[str, list[str]]:
+    rebuilt_layer, skipped_assets = render_rebuilt_layer(report, recovery_dir_name, asset_tracks)
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -87,7 +98,7 @@ def render_index(report: dict[str, Any], recovery_dir_name: str) -> str:
     <script src="./script.js"></script>
   </body>
 </html>
-"""
+""", skipped_assets
 
 
 def main() -> None:
@@ -99,6 +110,12 @@ def main() -> None:
         help="Optional skill root; defaults to parent of this script. Used for the lab template CSS/JS.",
     )
     parser.add_argument("--no-backup", action="store_true", help="Do not write .before-recovery backups")
+    parser.add_argument(
+        "--asset-tracks",
+        default="island,approximation",
+        help="Comma-separated ledger tracks whose assets are rendered as <img>; other regions render as skeleton "
+        "sections even if the ledger assigned them assets. Pass 'all' for a full bitmap-collage diagnostic.",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir).expanduser().resolve()
@@ -124,7 +141,20 @@ def main() -> None:
                 if not backup.exists():
                     shutil.copy2(path, backup)
 
-    index_path.write_text(render_index(report, args.recovery_dir), encoding="utf-8")
+    asset_tracks: set[str] | None
+    if args.asset_tracks.strip().lower() == "all":
+        asset_tracks = None
+    else:
+        asset_tracks = {track.strip() for track in args.asset_tracks.split(",") if track.strip()}
+    index_html, skipped_assets = render_index(report, args.recovery_dir, asset_tracks)
+    if skipped_assets:
+        print(
+            f"Warning: {len(skipped_assets)} component-track regions have ledger assets that were NOT rendered "
+            f"({', '.join(skipped_assets[:8])}{'...' if len(skipped_assets) > 8 else ''}). "
+            "Rebuild these as DOM/SVG components; use --asset-tracks all only for a bitmap-collage diagnostic.",
+            file=sys.stderr,
+        )
+    index_path.write_text(index_html, encoding="utf-8")
     base_css = (template / "styles.css").read_text(encoding="utf-8")
     recovery_css = (recovery_dir / "recovery-skeleton.css").read_text(encoding="utf-8")
     styles_path.write_text(base_css + "\n\n" + recovery_css + "\n", encoding="utf-8")
@@ -138,7 +168,9 @@ def main() -> None:
                 "index": str(index_path),
                 "styles": str(styles_path),
                 "regions": len(report.get("regions", [])),
-                "assets": sum(1 for region in report.get("regions", []) if region.get("asset")),
+                "ledger_assets": sum(1 for region in report.get("regions", []) if region.get("asset")),
+                "rendered_assets": sum(1 for region in report.get("regions", []) if region.get("asset")) - len(skipped_assets),
+                "skipped_component_assets": skipped_assets,
             },
             indent=2,
         )

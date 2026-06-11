@@ -273,6 +273,7 @@ def select_asset_regions(
     summary: list[dict[str, Any]],
     width: int,
     height: int,
+    allow_component_assets: bool = False,
 ) -> tuple[set[str], dict[str, Any]]:
     if provider == "none" or policy == "none":
         return set(), {"estimated_match_pct": None, "selected_mismatch_pixels": 0}
@@ -301,11 +302,21 @@ def select_asset_regions(
             key=lambda region: (-region_area(region), priority.get(str(region.get("track")), 4)),
         )
         remaining = current_mismatch
+        skipped_component = 0
         for region in candidates:
             if remaining <= target_mismatch:
                 break
+            if not allow_component_assets and str(region.get("track")) == "component":
+                skipped_component += 1
+                continue
             selected.add(region["name"])
             remaining = max(0.0, remaining - mismatch_pixels(region))
+        if skipped_component and remaining > target_mismatch:
+            print(
+                f"Note: target policy skipped {skipped_component} component-track regions; "
+                "the remaining gap must be closed by rebuilding them as DOM/SVG components, not by assets "
+                "(pass --allow-component-assets only for a bitmap-ceiling diagnostic)."
+            )
     else:
         raise SystemExit(f"Unknown asset policy: {policy}")
 
@@ -323,12 +334,19 @@ def select_asset_regions(
         }
     current_mismatch = float(rebuilt_mismatch)
     estimated_remaining = max(0.0, current_mismatch - selected_mismatch)
-    return selected, {
+    estimate = {
         "estimated_match_pct": 100.0 - (estimated_remaining / total_pixels * 100.0),
         "selected_mismatch_pixels": round(selected_mismatch),
         "current_mismatch_pixels": round(current_mismatch),
         "target_match_pct": target_match,
+        "component_assets_allowed": allow_component_assets,
     }
+    if policy == "target" and estimate["estimated_match_pct"] < target_match:
+        estimate["note"] = (
+            "assets alone cannot reach the target without covering component-track regions; "
+            "the remaining gap belongs to DOM/SVG component rebuilds"
+        )
+    return selected, estimate
 
 
 def sample_fill(reference: Any, region: dict[str, Any]) -> str:
@@ -527,6 +545,12 @@ def main() -> None:
         help="Which regions receive generated assets",
     )
     parser.add_argument("--target-match", type=float, default=98.0, help="Target match percentage for --asset-policy target")
+    parser.add_argument(
+        "--allow-component-assets",
+        action="store_true",
+        help="Let --asset-policy target assign assets to component-track regions (bitmap-ceiling diagnostic only; "
+        "the result is a collage, not component restoration)",
+    )
     parser.add_argument("--cover-gaps", action="store_true", help="Add gap rectangles so the scaffold can cover the whole canvas")
     parser.add_argument(
         "--table-track",
@@ -593,6 +617,7 @@ def main() -> None:
         summary if isinstance(summary, list) else [],
         width,
         height,
+        args.allow_component_assets,
     )
     asset_regions = [region for region in enriched if region["name"] in asset_names]
     if args.asset_provider == "image2":

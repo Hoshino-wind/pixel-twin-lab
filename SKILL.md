@@ -37,7 +37,7 @@ English is the default runtime language for this skill. The Chinese mirror is av
 - Pick one fidelity track per run: `bitmap exact` (raster slices and SVG replicas allowed; `0%` is achievable) or `component faithful` (project-native components; small residual error is expected and acceptable). Report both numbers at handoff, but do not chase both targets with the same artifact.
 - After each diff round, run `plan_calibration.py` and `triage_lab.py`. The planner turns per-region metrics into repair passes; triage decides whether the next action is environment repair, manual manifest, skeleton bootstrap, slice-island merge, layout/token repair, or region rebuild.
 - When triage says `manual-manifest`, `merge-islands`, or the component pass is still structurally far off, run `bootstrap_recovery.py` to produce starter manifests, a component/island ledger, island crops, and a React/CSS scaffold before editing final project code again.
-- For a high-fidelity pass that may use model-generated or extracted visual elements, run `bootstrap_recovery.py --asset-provider image2 --asset-policy target --target-match 98`. Treat the generated crops as Image2 element-extraction stand-ins: in production, replace them with actual Image2 extracted/generated assets when available.
+- For a high-fidelity pass that may use model-generated or extracted visual elements, run `bootstrap_recovery.py --asset-provider image2 --asset-policy target --target-match 98`. Treat the generated crops as Image2 element-extraction stand-ins: in production, replace them with actual Image2 extracted/generated assets when available. The `target` policy never assigns assets to component-track regions; if the estimate cannot reach the target with island assets alone, the remaining gap is component rebuild work, not a reason to add more crops.
 - If the current model cannot extract or recreate an element, rerun recovery with `--asset-provider placeholder`; it creates same-size placeholder images so layout and component contracts stay stable without pretending the bitmap asset exists.
 - Component-style restoration is the primary standard. A strict no-asset run satisfies `component_only_98` only when `rebuilt-capture.png` reaches at least 98% strict match with zero generated Image2/placeholder assets. For real UIs with photos/maps/avatars/charts, the practical componentized gate is `componentized_islands_98`: strict match >= 98%, generated assets only in approved `island` tracks, and all component tracks rebuilt as DOM/SVG.
 - A sampled-fill or absolute-rectangle skeleton is only a geometry diagnostic. It is not component-style restoration. For `component-only 98`, rebuild regions with semantic DOM/SVG primitives: real text nodes, table/list rows, nav items, controls, vector icons, and chart paths/marks.
@@ -229,7 +229,7 @@ Asset policy rules:
 
 - `ledger-islands`: only regions classified as islands receive assets.
 - `non-component`: islands and approximation regions receive assets.
-- `target`: promote the worst regions to assets until the estimated match reaches `--target-match`.
+- `target`: promote the worst regions to assets until the estimated match reaches `--target-match`. Component-track regions are never promoted unless `--allow-component-assets` is passed (bitmap-ceiling diagnostic only); when assets alone cannot reach the target, the estimate stays honest and names the gap as DOM/SVG rebuild work.
 - `all-regions`: every named region receives an asset; use only for a bitmap-exact ceiling or a diagnostic run.
 
 Materialize recovery assets into the lab for screenshot QA:
@@ -239,7 +239,7 @@ python /path/to/pixel-twin-lab/scripts/materialize_recovery_lab.py \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
 
-This rewrites the lab's `rebuilt` layer from `recovery/component-ledger.json`, preserving `.before-recovery` backups. Use it to quantify the hybrid asset pass; do not copy the materialized lab into production unchanged.
+This rewrites the lab's `rebuilt` layer from `recovery/component-ledger.json`, preserving `.before-recovery` backups. By default only `island,approximation` track assets render as `<img>` (`--asset-tracks`); component-track regions render as skeleton sections even when the ledger assigned them assets, with a warning listing what was skipped — component regions must be rebuilt as DOM/SVG, never materialized as crops. Pass `--asset-tracks all` only for an explicit bitmap-collage diagnostic. Note it overwrites `index.html`: hand-written component HTML in the lab is only preserved in the first `.before-recovery` backup.
 
 Gate fidelity without mixing result types:
 
