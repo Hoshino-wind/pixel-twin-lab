@@ -83,7 +83,10 @@
 6. 用与参考图相同的 viewport 捕获最终 App 路由。
 7. 对 App 截图运行 `pixel_diff.py`，或把 App 截图复制到 lab 作为 `rebuilt-capture.png`。第一轮校准前先验证零基线:lab 的 `reference` 截图与参考图 diff 必须是 `0%`——基线不为零是环境问题(viewport、色彩配置、字体、端口被占),不是 CSS 问题。分区指标(切片 + `regions.json`)会告诉你下一个该修哪个组件。
 8. 运行 `plan_calibration.py` 生成下一轮修复计划:它把每个未达标区域分类为未实现、布局偏移、token 色差、切片岛候选或重建,按 pass 排序(skeleton → layout → visual tokens → asset islands → region rebuild loop)。按 pass 顺序执行;未实现区域用 `skeleton.suggested.css` 起骨架,出现岛区域时把 `slice-manifest.suggested.json` 合并进 slice manifest 并重跑 lab 准备。
-9. 每轮迭代在 `implementation-ledger.md` 中记录：
+9. 组件化门禁失败时,运行 `component_primitives.py --out-dir <lab> --target-match 98`。用 `component-primitives.md` 作为下一轮重建工单:它会区分 approved island 与 component-required 区域,并点名必须重建的 DOM/SVG primitive,包括文字节点、导航行、卡片、控件、表格、列表、矢量图标、图表坐标轴和图表标记。
+10. 修改最差的 component-required 区域前,运行 `measure_primitives.py --out-dir <lab> --regions <names>`。用 `measured-primitives.md` 和 overlay PNG 放置 primitive box;凭感觉补文字/图标/控件往往看起来更完整,但会增加像素误差。
+11. 每个组件变体完成后,运行 `compare_region_metrics.py --baseline <clean-lab> --candidate <edited-lab>`。只有分区指标向正确方向变化时才保留 DOM text、SVG primitive 或其它策略;截图看起来更完整并不足够。
+12. 每轮迭代在 `implementation-ledger.md` 中记录：
    - 修改过的文件
    - 截图路径
    - mismatch 指标(整体 + 最差区域)
@@ -104,7 +107,11 @@
 - 遵循项目现有框架和样式系统，不要把 lab 模板硬塞进生产代码。
 - 最终源码中只保留项目实际使用的资产；参考图和切片留在中间 run 文件夹。
 - 如果像素完美结果依赖位图切片，标记为“bitmap-perfect”，不要称为可维护组件实现。
+- 绝不把整页 surface patch 当成最终产品代码:覆盖大半页面的单张位图只能作为 ceiling 证明或诊断产物。目标是可维护组件时,按 UI 结构拆成区域级组件(header、weather、trip map、timeline 图标/文字、bottom nav 等),island 只保留区域内真正的位图内容,逐区域局部收敛直到组件化门禁通过,或明确报告剩余差距。`componentized_islands_98` 对资产覆盖面积有上限(总面积与单个资产),页面级贴图会直接判失败。
 - 交付时报告两套指标:`component faithful`(纯代码重建)和 `bitmap exact`(应用切片岛后),并列出哪些区域保留为切片岛。
+- 组件化门禁失败时附上 `component-primitives.md`;这是下一轮重建工单,防止 asset-only 修复被误判为组件还原。
+- 声称某个 component-required 区域已重建前,附上 `measured-primitives.md`;它证明这次修改依据参考几何,不是肉眼猜测。
+- 组件变体需要附上 `region-metric-comparison.md`;它证明该修改对命名区域是改善还是退步。
 - 如果组件实现仍有视觉差异，报告具体 mismatch 和下一步校准动作。
 
 ## 交付检查清单

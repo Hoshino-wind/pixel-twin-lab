@@ -20,10 +20,22 @@ Keep all intermediate artifacts under the target project:
           script.js
           assets/reference.png
           assets/slice-*.png
+          recovery/
+            component-ledger.md
+            slice-manifest.starter.json
+            island-manifest.starter.json
+            asset-manifest.starter.json
+            recovery-skeleton.css
+            RecoveryScaffold.jsx
+            assets/*.png
           *-capture.png
           capture-meta.json
           *-diff.png
           pixel-diff-summary.json
+          triage-report.json
+          triage-report.md
+          fidelity-gate.json
+          fidelity-gate.md
           regions.json
   <final-dir>/
     final component/source files written here
@@ -83,11 +95,68 @@ If `project-dir` or `final-dir` is unclear, ask before writing final product fil
 6. Capture the final app route at the same viewport as the reference.
 7. Run `pixel_diff.py` against the app capture or copy the app capture into the lab as `rebuilt-capture.png`. Before the first calibration pass, verify the zero baseline: the lab's `reference` capture must diff `0%` against the reference — a nonzero baseline is an environment problem (viewport, color profile, fonts, wrong server), not a CSS problem. Per-region metrics (slices + `regions.json`) tell you which component to fix next.
 8. Run `plan_calibration.py` to generate the next-round repair plan: it classifies every imperfect region as not built yet, a layout shift, a token offset, a slice-island candidate, or a rebuild, ordered into passes (skeleton → layout → visual tokens → asset islands → region rebuild loop). Follow the pass order; bootstrap unbuilt regions from `skeleton.suggested.css`, and merge `slice-manifest.suggested.json` into the slice manifest and rerun lab preparation when island regions appear.
-9. Record each iteration in `implementation-ledger.md`:
+9. Run `triage_lab.py` and obey its decision before editing code again:
+   - `fix-environment`: stop; screenshot math is invalid.
+   - `manual-manifest`: measure named regions and rerun `prepare_lab.py --manifest`.
+   - `bitmap-ceiling-ok`: keep the proof, then return to manifest/component work.
+   - `skeleton-first`: create project-native layout containers before styling detail.
+   - `merge-islands`: keep raster-like regions as slice islands.
+   - `layout-token-pass`: fix geometry before color and type.
+   - `region-rebuild`: rebuild the worst named region only.
+10. When triage calls for manifest, islands, or structural recovery, run `bootstrap_recovery.py --out-dir <lab>`:
+   - use `recovery/slice-manifest.starter.json` to prove named exact coverage;
+   - use `recovery/island-manifest.starter.json` and `recovery/assets/` for first-pass island fidelity;
+   - use `--asset-provider image2 --asset-policy target --target-match 98` when the current run needs extracted visual elements to reach a high-fidelity hybrid pass;
+   - use `--asset-provider placeholder` when the current model cannot extract or recreate those elements, so final layout keeps same-size slots without claiming pixel fidelity;
+   - use `recovery/component-ledger.md` as the next worklist;
+   - adapt `recovery-skeleton.css` or `RecoveryScaffold.jsx` into the target project's framework and style system.
+11. To test the hybrid asset pass, run `materialize_recovery_lab.py --out-dir <lab>`, capture rebuilt mode, and rerun `pixel_diff.py`. Treat this as a QA artifact, not production code.
+12. Run `fidelity_gate.py --out-dir <lab> --target-match 98` after every measured pass. The strict no-asset success gate is `component_only_98`; the practical componentized success gate is `componentized_islands_98`; never use `hybrid_asset_98` alone as the componentized result.
+13. If the componentized gate fails, run `component_primitives.py --out-dir <lab> --target-match 98`. Use `component-primitives.md` as the next rebuild worklist. It separates approved islands from component-required regions and names the DOM/SVG primitives that must be rebuilt: text nodes, nav rows, cards, controls, tables, lists, vector icons, chart axes, and chart marks.
+14. Before editing the worst component-required regions, run `measure_primitives.py --out-dir <lab> --regions <names>`. Use `measured-primitives.md` and the overlay PNGs to place primitive boxes; guessed text/icon/control geometry often looks more complete while increasing pixel error.
+15. After each component variant, run `compare_region_metrics.py --baseline <clean-lab> --candidate <edited-lab>`. Keep DOM text, SVG primitives, or another strategy only when region metrics move in the right direction; screenshot-level visual completeness is not enough.
+16. Record each iteration in `implementation-ledger.md`:
    - changed files
    - screenshot path
    - mismatch metrics (overall and worst regions)
    - remaining P0/P1/P2 issues
+
+## Complex UI Recovery Loop
+
+Use this loop for dense dashboards, analytics screens, low-contrast SaaS UIs, maps, charts, long tables, or AI mockups with many tiny labels.
+
+1. Prove the environment: `reference-capture.png` must diff `0%`.
+2. Prove the bitmap ceiling: run a `--full-bleed` lab once. If full-bleed exact is `0%`, the toolchain can be exact and later error belongs to slicing or componentization.
+3. If auto-slice coverage is low or auto exact mismatch is high, stop tuning thresholds. Write manual `regions.json` and `slice-manifest.json` with the same names.
+4. Run `bootstrap_recovery.py` once `regions.json` exists. Review `recovery/component-ledger.md` instead of hand-sorting the diff image.
+5. Classify or adjust each region before coding:
+   - `component`: shell, nav, cards, controls, simple lists, layout chrome.
+   - `island`: charts, maps, photos, avatars, logos, dense tables, complex text blocks.
+   - `approximation`: areas that should be maintainable but are allowed to differ from the bitmap.
+6. Start from skeleton geometry, not detailed visuals. Adapt `recovery/recovery-skeleton.css`, `RecoveryScaffold.jsx`, or equivalent project-native layout containers first.
+7. Merge slice islands early. Do not spend iterations hand-coding raster-like regions unless the user explicitly asks for that tradeoff.
+8. If Image2 is available, extract or regenerate high-error visual elements and embed them as assets in the component containers. If Image2 is unavailable, use same-size placeholders so the project code keeps a stable contract while fidelity is reported honestly.
+9. Only after geometry and islands are stable, tune typography, colors, borders, shadows, and spacing.
+10. Report strict mismatch, tolerant mismatch, and the island/asset list separately. A bitmap-perfect result and a maintainable component result are different deliverables.
+
+Do not compare a dense component reconstruction against the whole-page strict mismatch as the only success metric. Use named-region metrics and triage decisions so the agent fixes the right class of problem.
+
+## Fidelity Gates
+
+Component-style restoration is the default success standard. Use these gates:
+
+- `component_only_98`: strict match is at least 98%, and the rebuilt capture uses no generated Image2 or placeholder assets.
+- `componentized_islands_98`: strict match is at least 98%, generated assets are limited to approved `island` tracks, asset coverage is region-scoped (total area within `--max-asset-coverage`, no single asset above `--max-single-asset-coverage`), and component regions remain DOM/SVG.
+- `hybrid_asset_98`: strict match is at least 98% after embedding Image2-extracted/generated visual elements. This proves geometry and asset placement, not component restoration.
+- `placeholder_contract`: same-size placeholder assets exist for unavailable model outputs. This proves layout contracts only.
+
+All fidelity gates also require a proven zero baseline (`reference-capture.png` mismatch within `--reference-target`); without it the screenshot math is untrusted and every gate fails.
+
+If the user asks for "componentized", "component-style", or "组件式还原", never mark the run complete from `hybrid_asset_98` alone. Keep rebuilding component regions until `component_only_98` or `componentized_islands_98` passes, or report the remaining gap explicitly.
+
+Do not treat a sampled-fill or absolute-rectangle skeleton as component restoration. It is a geometry diagnostic only. Component restoration must rebuild visible content as semantic DOM/SVG primitives: text, tables, lists, nav items, controls, vector icons, chart axes, chart marks, and repeated component structures.
+
+Never ship a full-surface patch as final product code. A single bitmap covering most or all of the page — whatever its match percentage or file size — is only a ceiling proof or diagnostic artifact. When the goal is maintainable in-project components, split the screen into region-level components named after the UI (e.g. header, weather card, trip map, timeline icon/text rows, bottom nav), keep islands scoped to genuinely raster content inside those regions, and converge each region locally with measured primitives until the componentized gate passes or the remaining gap is reported explicitly.
 
 ## Stack and Styling Rules
 
@@ -105,6 +174,11 @@ If `project-dir` or `final-dir` is unclear, ask before writing final product fil
 - Keep only project-used assets in final source; leave reference images and slices in the intermediate run folder.
 - If a perfect-pixel result uses raster slices, label it as "bitmap-perfect" and do not call it a maintainable component implementation.
 - Report two metrics at handoff: `component faithful` (coded reconstruction only) and `bitmap exact` (with slice islands applied), plus the list of regions kept as islands.
+- When the run uses extracted visual elements, also report `hybrid asset fidelity` and list which regions were `image2-extract` versus `placeholder`.
+- Include `fidelity-gate.md`; if `componentized_islands_98` fails, say so even when hybrid or bitmap exact passes.
+- Include `component-primitives.md` whenever the componentized gate fails; this is the required next-pass worklist and prevents asset-only fixes from being mistaken for component restoration.
+- Include `measured-primitives.md` before claiming a component-required region was rebuilt; it proves the next edit was guided by reference geometry rather than eyeballing.
+- Include `region-metric-comparison.md` for component variants; it proves whether the edit improved or regressed the named regions.
 - If a component implementation remains visually different, report the exact mismatch and next calibration step.
 
 ## Handoff Checklist
@@ -114,4 +188,7 @@ If `project-dir` or `final-dir` is unclear, ask before writing final product fil
 - The target project builds or runs, when feasible.
 - A same-viewport screenshot has been captured.
 - `pixel-diff-summary.json` or equivalent metrics are attached.
+- `triage-report.md` is attached when a calibration loop was run.
+- `fidelity-gate.md` is attached before any success claim.
+- `recovery/component-ledger.md` is attached when recovery bootstrap was used.
 - Final response links both the final files and the intermediate workbench.

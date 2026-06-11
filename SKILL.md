@@ -31,10 +31,20 @@ English is the default runtime language for this skill. The Chinese mirror is av
 - If the reference is an AI-generated UI image, assume there are no real layers, tokens, or asset sources; extract them from the bitmap.
 - If `prepare_lab.py` warns that the background is not a uniform solid color (`background_uniform: false` in `lab-config.json`), rerun with `--full-bleed` before trusting exact-mode numbers. The warning is a border-sampling heuristic; a component touching the image edge can also trigger it.
 - If the reference is a light, low-contrast, or complex dashboard and auto-detected slices are missing or obviously incomplete (few slices, low `coverage_pct` in `lab-config.json`), do not keep tuning `--threshold`. Measure component bounds from the reference image, write a `slice-manifest.json`, and rerun with `--manifest`. Name manifest regions after `component-map.md` regions so slices, metrics, and the ledger share one vocabulary.
+- If `exact-capture.png` is far from `0%` while `slice_source` is `auto`, treat auto slicing as untrusted before judging the implementation. Run a full-bleed exact proof, then create a named manual manifest for reusable exact/island regions.
 - Before trusting any diff number, prove the environment with a zero baseline: capture `reference` mode and diff it against the reference image — it must be `0%`. A nonzero baseline means the rendering environment is broken (wrong viewport or device scale, color profile not sRGB, font substitution, or the wrong server/port answering), so fix the environment before touching the reconstruction.
 - For regions a coded component cannot faithfully reproduce — maps, photos, avatars, complex charts, logo/display text — use the hybrid strategy: componentize the shell, layout, and interactions, and keep those regions as bitmap slice islands declared in `slice-manifest.json` and marked as islands in the ledger.
 - Pick one fidelity track per run: `bitmap exact` (raster slices and SVG replicas allowed; `0%` is achievable) or `component faithful` (project-native components; small residual error is expected and acceptable). Report both numbers at handoff, but do not chase both targets with the same artifact.
-- After each diff round, run `plan_calibration.py` to turn per-region metrics into a repair plan. It classifies every imperfect region as not built yet, a layout shift, a token offset, a slice-island candidate, or a rebuild, and orders them into passes: skeleton → layout → visual tokens → asset islands → region rebuild loop. Fix in that order — geometry errors make every later comparison red, and island content should be sliced, not endlessly re-coded.
+- After each diff round, run `plan_calibration.py` and `triage_lab.py`. The planner turns per-region metrics into repair passes; triage decides whether the next action is environment repair, manual manifest, skeleton bootstrap, slice-island merge, layout/token repair, or region rebuild.
+- When triage says `manual-manifest`, `merge-islands`, or the component pass is still structurally far off, run `bootstrap_recovery.py` to produce starter manifests, a component/island ledger, island crops, and a React/CSS scaffold before editing final project code again.
+- For a high-fidelity pass that may use model-generated or extracted visual elements, run `bootstrap_recovery.py --asset-provider image2 --asset-policy target --target-match 98`. Treat the generated crops as Image2 element-extraction stand-ins: in production, replace them with actual Image2 extracted/generated assets when available.
+- If the current model cannot extract or recreate an element, rerun recovery with `--asset-provider placeholder`; it creates same-size placeholder images so layout and component contracts stay stable without pretending the bitmap asset exists.
+- Component-style restoration is the primary standard. A strict no-asset run satisfies `component_only_98` only when `rebuilt-capture.png` reaches at least 98% strict match with zero generated Image2/placeholder assets. For real UIs with photos/maps/avatars/charts, the practical componentized gate is `componentized_islands_98`: strict match >= 98%, generated assets only in approved `island` tracks, and all component tracks rebuilt as DOM/SVG.
+- A sampled-fill or absolute-rectangle skeleton is only a geometry diagnostic. It is not component-style restoration. For `component-only 98`, rebuild regions with semantic DOM/SVG primitives: real text nodes, table/list rows, nav items, controls, vector icons, and chart paths/marks.
+- The final deliverable is maintainable in-project components, never a whole-page bitmap. Decompose the screen into region-level components named after the UI (e.g. header, weather card, trip map, timeline rows, bottom nav) and converge each region locally with measured primitives. A full-surface patch — one bitmap covering most or all of the page, however high its match or large its file — is a diagnostic/ceiling artifact only and must never ship as final product code. `fidelity_gate.py` enforces this with asset coverage caps (`--max-asset-coverage`, `--max-single-asset-coverage`); island assets must stay region-scoped (a map tile, a photo), not page-scoped.
+- When `component_only_98` or `componentized_islands_98` fails, run `component_primitives.py` before another rebuild pass. It converts named-region metrics, ledger tracks, and DOM evidence into a primitive worklist so the next iteration targets text, rows, cards, controls, icons, tables, and SVG marks instead of adding more bitmap assets.
+- Before editing a `component-required` region, run `measure_primitives.py` on the reference crop. Do not add primitives by eye: measured boxes for text lines, controls, icons, cards, dividers, and SVG marks must guide CSS geometry.
+- After editing measured primitives, run `compare_region_metrics.py` against the clean baseline lab. Treat visual completeness as untrusted when strict or tolerant region metrics regress.
 - If the task is only analysis, do not edit the app; run measurement and report feasibility.
 - If the task is implementation, create the workbench first, then iterate the coded reconstruction against screenshots.
 - If the user wants "full flow" or "componentization", require a target project path and project-relative final source directory before writing final product files.
@@ -52,7 +62,14 @@ English is the default runtime language for this skill. The Chinese mirror is av
 6. Capture `reference`, `rebuilt`, and `exact` modes at the source image's native size with `scripts/capture_modes.cjs`.
 7. Run `scripts/pixel_diff.py` to create diff images and JSON metrics.
 8. Run `scripts/plan_calibration.py` to generate `calibration-plan.md`; follow its pass order (layout → tokens → islands → rebuild) for the next iteration, and merge `slice-manifest.suggested.json` into your manifest when it appears.
-9. Write a short QA result:
+9. Run `scripts/triage_lab.py` to write `triage-report.md`; let that report pick the next optimization pass before making more code edits.
+10. If triage calls for manual manifest, islands, or structural recovery, run `scripts/bootstrap_recovery.py` and use its `recovery/component-ledger.md` as the next-pass worklist.
+11. For a measurable high-fidelity hybrid pass, run `scripts/materialize_recovery_lab.py` to write the recovery ledger/assets into the lab's `rebuilt` layer, capture again, and compare the actual match percentage.
+12. Run `scripts/fidelity_gate.py --target-match 98` before claiming any success. `component_only_98` is the strict no-asset gate; `componentized_islands_98` is the practical componentized gate when only island tracks use extracted assets; `hybrid_asset_98` and `placeholder_contract` are secondary evidence only.
+13. If a componentized gate fails, run `scripts/component_primitives.py`, then run `scripts/measure_primitives.py` for the worst `component-required` regions.
+14. Rebuild those regions as semantic DOM/SVG primitives using `measured-primitives.md` for geometry, then rerun capture and diff.
+15. Run `scripts/compare_region_metrics.py --baseline <clean-lab> --candidate <edited-lab>` and keep or revert each component strategy based on region deltas.
+16. Write a short QA result:
    - source path
    - implementation screenshot path
    - viewport
@@ -92,8 +109,10 @@ python /path/to/pixel-twin-lab/scripts/init_component_flow.py \
    - Existing UI library: reuse local components and library primitives when they match the reference.
    - No detectable frontend stack: default to React + Tailwind.
 8. Capture the actual final app route and rerun pixel diff.
-9. Update `implementation-ledger.md` after each iteration.
-10. Final handoff must link both:
+9. Run `plan_calibration.py` and `triage_lab.py` after each iteration; use `triage-report.md` as the pass gate before touching final code again.
+10. Run `bootstrap_recovery.py` when the pass gate calls for manual manifest, islands, or structural recovery; adapt its scaffold into project-native code rather than copying it blindly.
+11. Update `implementation-ledger.md` after each iteration.
+12. Final handoff must link both:
    - the intermediate workbench directory
    - the final project files changed
 
@@ -159,6 +178,116 @@ python /path/to/pixel-twin-lab/scripts/plan_calibration.py \
 
 Defaults to `rebuilt-capture.png` in the out dir (`--capture` overrides). Per region it probes for an integer layout shift (±4px, `--shift-radius`), a uniform color offset, raster-like content complexity, and a flat not-built-yet capture, then writes `calibration-plan.json` and `calibration-plan.md` grouping regions into passes with one-line actions ("move by (-3, 0)", "reference #ffffff vs build #fafaff"). Classification runs on tolerant mismatch (`--tolerance`, default 8) with strict values reported alongside — at tolerance 0, font/antialiasing residue saturates every region to ~100% and blinds the shift and color probes. Regions classified `slice-island` are emitted as a ready-to-merge `slice-manifest.suggested.json`; regions classified `not-built` are emitted as `skeleton.suggested.css` (containers at reference positions with sampled fills) to bootstrap the layout pass. Regions whose residue is antialiasing-level are listed as converged and need no action. Expect mostly `not-built`/`slice-island` on iteration zero — layout/token classifications only become informative once a real skeleton exists (mid-range mismatch).
 
+Generate a triage report from the lab state:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/triage_lab.py \
+  --out-dir /absolute/path/outputs/pixel-twin
+```
+
+Triage reads `lab-config.json`, `capture-meta.json`, `pixel-diff-summary.json`, and the latest `calibration-plan.json` when present, then writes `triage-report.json` and `triage-report.md`. Use it as the pass gate:
+
+- `fix-environment`: reference capture is not `0%`; repair viewport, scale, color profile, or server path first.
+- `manual-manifest`: auto slices have low coverage or auto exact mode is far from `0%`; measure named regions, rerun `prepare_lab.py --manifest`, and keep gap slices enabled.
+- `bitmap-ceiling-ok`: full-bleed or manifest exact is already near `0%`; use it as proof of the exact ceiling, then return to component work.
+- `skeleton-first`: regions are not built yet; apply `skeleton.suggested.css` before styling details.
+- `merge-islands`: raster-like regions should become slice islands, not hand-coded components.
+- `layout-token-pass`: geometry or token drift is measurable; fix layout before color.
+- `region-rebuild`: remaining structural mismatches need region-by-region rebuilds.
+- `converged`: the current fidelity target is met or no blocking issue was detected.
+
+Bootstrap concrete recovery artifacts:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/bootstrap_recovery.py \
+  --out-dir /absolute/path/outputs/pixel-twin \
+  --asset-provider image2 \
+  --asset-policy target \
+  --target-match 98
+```
+
+`bootstrap_recovery.py` reads `regions.json` when present (otherwise lab slices), `triage-report.json`, `calibration-plan.json`, and `pixel-diff-summary.json`, then writes:
+
+- `recovery/slice-manifest.starter.json`: all named regions for a manifest exact proof.
+- `recovery/island-manifest.starter.json`: only regions classified as bitmap islands.
+- `recovery/asset-manifest.starter.json`: regions selected for Image2 extraction or placeholder assets.
+- `recovery/component-ledger.md` and `.json`: region bounds, track (`component`/`island`/`approximation`), mismatch, and reason.
+- `recovery/recovery-skeleton.css`: absolute geometry scaffold with sampled fills.
+- `recovery/RecoveryScaffold.jsx`: intermediate React scaffold for blank or React/Tailwind defaults.
+- `recovery/assets/*.png`: Image2 extraction stand-ins or same-size placeholders, depending on `--asset-provider`.
+
+Treat these as intermediate workbench artifacts. For a real project, adapt the ledger and geometry into the detected framework/style system; do not copy the scaffold into production unchanged.
+
+Asset provider rules:
+
+- `--asset-provider image2`: use reference crops as stand-ins for Image2-extracted elements; replace with real Image2 output when the workflow has access to it.
+- `--asset-provider placeholder`: create same-size neutral placeholder images for models that cannot extract/regenerate the element.
+- `--asset-provider none`: write the ledger and scaffold without generated assets.
+
+Asset policy rules:
+
+- `ledger-islands`: only regions classified as islands receive assets.
+- `non-component`: islands and approximation regions receive assets.
+- `target`: promote the worst regions to assets until the estimated match reaches `--target-match`.
+- `all-regions`: every named region receives an asset; use only for a bitmap-exact ceiling or a diagnostic run.
+
+Materialize recovery assets into the lab for screenshot QA:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/materialize_recovery_lab.py \
+  --out-dir /absolute/path/outputs/pixel-twin
+```
+
+This rewrites the lab's `rebuilt` layer from `recovery/component-ledger.json`, preserving `.before-recovery` backups. Use it to quantify the hybrid asset pass; do not copy the materialized lab into production unchanged.
+
+Gate fidelity without mixing result types:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/fidelity_gate.py \
+  --out-dir /absolute/path/outputs/pixel-twin \
+  --target-match 98
+```
+
+`fidelity_gate.py` reads `pixel-diff-summary.json`, `recovery/component-ledger.json`, and `index.html`/`regions.json` asset evidence, then writes `fidelity-gate.json` and `fidelity-gate.md`. All fidelity gates additionally require a proven zero baseline (`reference-capture.png` mismatch <= `--reference-target`, default 0.01%); an unproven environment fails every gate.
+
+- `component_only_98`: passes only when strict match is at least 98% and no generated assets are present.
+- `componentized_islands_98`: passes when strict match is at least 98%, generated assets appear only on approved island tracks (`--allowed-asset-tracks`, default `island`), and asset coverage stays region-scoped: total generated-asset area <= `--max-asset-coverage` (default 40% of the page) and no single asset above `--max-single-asset-coverage` (default 30%). A page-sized surface patch fails this gate by design. Asset regions without verifiable bounds (in the ledger or `regions.json`) also fail it.
+- `hybrid_asset_98`: passes when strict match is at least 98% with Image2-extract assets; this is not component-style success.
+- `placeholder_contract`: records same-size placeholders for models that cannot extract elements; this is never a fidelity pass by itself.
+- If `component_only_98` and `componentized_islands_98` both fail, do not try to pass by materializing `recovery-skeleton.css` or by placing assets over component regions; rebuild the worst named component regions as project-native DOM/SVG components and rerun the gate.
+
+Generate a component primitive worklist after a failed componentized gate:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/component_primitives.py \
+  --out-dir /absolute/path/outputs/pixel-twin \
+  --target-match 98
+```
+
+`component_primitives.py` reads `regions.json`, `pixel-diff-summary.json`, `recovery/component-ledger.json`, and `index.html`, then writes `component-primitives.json` and `component-primitives.md`. Use the worklist for the next rebuild pass. Regions marked `component-required` must be rebuilt as project-native DOM/SVG primitives; regions marked `approved-island` may keep measured assets; regions marked `asset-disallowed` cannot be used to satisfy a componentized gate.
+
+Measure primitive boxes before editing a component-required region:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/measure_primitives.py \
+  --out-dir /absolute/path/outputs/pixel-twin \
+  --regions kpi-row,topbar
+```
+
+`measure_primitives.py` reads the reference image and the component primitive worklist, then writes `measured-primitives.json`, `measured-primitives.md`, and `primitive-measurements/*-primitive-overlay.png`. Use these measured boxes to place text, icons, controls, dividers, cards, and SVG marks. If a manual component edit makes the pixel diff worse, treat it as proof that the primitive geometry was guessed rather than measured.
+
+Compare an edited region against a clean baseline:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/compare_region_metrics.py \
+  --baseline /absolute/path/outputs/pixel-twin-baseline \
+  --candidate /absolute/path/outputs/pixel-twin-candidate \
+  --regions kpi-row \
+  --fail-on-strict-regression
+```
+
+`compare_region_metrics.py` writes `region-metric-comparison.json` and `.md` in the candidate lab. Use it after A/B variants such as DOM text vs SVG primitives. A candidate that improves tolerant mismatch but regresses strict mismatch is only partial evidence; continue tuning before claiming componentized progress.
+
 Per-region metrics are on by default (`--regions auto`): every slice in `lab-config.json` gets its own mismatch/MAE/max-delta entry (slice diff), and an optional `regions.json` in the out dir adds named rectangles (component diff). Region results are sorted worst-first under `regions` in `pixel-diff-summary.json`; `--regions none` disables, or pass a JSON file path. Name `regions.json` entries after `component-map.md` regions so map, metrics, and ledger share one vocabulary:
 
 ```json
@@ -192,6 +321,12 @@ Create or update these artifacts:
 - `*-diff.png`
 - `pixel-diff-summary.json` (includes per-region metrics when slices or `regions.json` exist)
 - `calibration-plan.json` and `calibration-plan.md` after each `plan_calibration.py` round
+- `triage-report.json` and `triage-report.md` after each `triage_lab.py` round
+- `fidelity-gate.json` and `fidelity-gate.md` before claiming component, hybrid, or placeholder success
+- `component-primitives.json` and `component-primitives.md` after failed componentized gates
+- `measured-primitives.json`, `measured-primitives.md`, and `primitive-measurements/*.png` before component-required region edits
+- `region-metric-comparison.json` and `region-metric-comparison.md` after component variants are tested against a clean baseline
+- optional `recovery/` folder from `bootstrap_recovery.py` with starter manifests, Image2/placeholder assets, a component ledger, skeleton CSS, and a React scaffold
 - optional `slice-manifest.suggested.json` with island regions proposed by the planner
 - optional `skeleton.suggested.css` bootstrapping containers for regions the planner marks as not built
 - optional `slice-manifest.json` with manually measured named slice rectangles
@@ -212,6 +347,9 @@ For full componentization, also create:
 - `0% mismatch`: the browser screenshot is pixel-identical to the reference.
 - `Exact Slice` near `0%`: only when the slices cover all non-background content. With auto detection that requires a uniform solid background and a threshold that catches every component; low-contrast regions (e.g. white cards on light gray) fall below the threshold and are filled with the background color instead — write a `slice-manifest.json` (gap slices complete the coverage), or use `--full-bleed`. Even at `0%` it is raster reconstruction, not componentized.
 - `Rebuilt` high mismatch: expected for a first pass; run `plan_calibration.py` and fix in pass order (layout → tokens → islands → rebuild) instead of eyeballing the diff image or hand-sorting regions.
+- `Auto exact` high mismatch with `full-bleed exact` at `0%`: the slice detector missed content; the next optimization is manifest work, not component CSS.
+- Simple app UIs with large visual blocks can converge through component CSS quickly; dense dashboards, maps, charts, tables, and tiny text usually need the hybrid manifest/slice-island path before component diff becomes meaningful.
+- `hybrid_asset_98` is useful evidence that geometry and extraction are correct, but it does not prove component restoration quality when assets cover component tracks. If `componentized_islands_98` fails, continue component-region rebuilds even when hybrid is visually perfect.
 - MAE near `0` with nonzero mismatch: usually edge antialiasing, background noise, or compression-like drift.
 - Large max delta: usually missing assets, wrong colors, blank regions, wrong crop, or layout drift.
 

@@ -335,14 +335,17 @@ def main() -> None:
         f"- Routing: {project_profile['routing']}\n"
         f"- UI libraries: {', '.join(project_profile['ui_libraries']) or 'none detected'}\n\n"
         "## Regions\n\n"
-        "- App shell:\n"
-        "- Navigation/sidebar:\n"
-        "- Top app bar:\n"
-        "- Filters/actions:\n"
-        "- Primary content:\n"
-        "- Detail panel:\n"
-        "- Charts/cards/media:\n"
-        "- Interactions/state:\n",
+        "Use these names consistently in `regions.json`, `slice-manifest.json`, screenshots, and ledger entries.\n\n"
+        "| Region | Bounds | Track | Notes |\n"
+        "| --- | --- | --- | --- |\n"
+        "| app-shell | x, y, w, h | component | Page background and root layout |\n"
+        "| navigation | x, y, w, h | component | Sidebar, tabs, or bottom nav |\n"
+        "| topbar | x, y, w, h | component | Header, filters, actions |\n"
+        "| primary-content | x, y, w, h | component | Main cards/lists/tables shell |\n"
+        "| detail-panel | x, y, w, h | component | Right panel or secondary column |\n"
+        "| data-viz-media | x, y, w, h | island | Charts, maps, photos, avatars, dense media |\n"
+        "| interactions-state | x, y, w, h | approximation | Hover/active/loading states after static fidelity |\n\n"
+        "Track values: `component`, `island`, or `approximation`.\n",
     )
     write_if_missing(
         run_dir / "implementation-ledger.md",

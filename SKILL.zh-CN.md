@@ -35,6 +35,11 @@ description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证
 - 对代码组件无法忠实还原的区域——地图、照片、头像、复杂图表、Logo/装饰文字——采用混合策略:组件化只负责外壳、布局和交互,这些区域作为位图切片岛保留,在 `slice-manifest.json` 中声明,并在 ledger 里标注为 island。
 - 每个 run 只追一条保真度轨道:`bitmap exact`(允许位图切片和 SVG 复刻,`0%` 可达)或 `component faithful`(项目原生组件,允许少量残余误差)。交付时两套数字都报告,但不要用同一份产物同时追两个目标。
 - 每轮 diff 后运行 `plan_calibration.py`,把分区指标变成修复计划。它会把每个未达标区域分类为未实现、布局偏移、token 色差、切片岛候选或重建,并按 pass 排序:skeleton → layout → visual tokens → asset islands → region rebuild loop。按这个顺序修——几何错会让后面所有对比满屏红,岛类内容应该切片,而不是反复重写代码。
+- 最终交付物必须是项目内可维护组件,而不是整页位图。按 UI 结构把屏幕拆成区域级组件(例如 header、weather 卡片、trip map、timeline 图标/文字行、bottom nav),逐区域用测量过的 primitive 局部收敛。覆盖大半页面的整页 surface patch——无论匹配率多高、文件多大——只能作为 ceiling 证明或诊断产物,绝不能写进最终产品代码。`fidelity_gate.py` 用资产覆盖上限强制这一点(`--max-asset-coverage` 默认 40%、`--max-single-asset-coverage` 默认 30%);island 资产必须是区域级(一块地图、一张照片),不能是页面级。
+- 所有保真度门禁现在都要求零基线先被证明(`reference-capture.png` mismatch 不超过 `--reference-target`,默认 0.01%);环境未证明时所有门禁判失败。
+- 当 `component_only_98` 或 `componentized_islands_98` 未通过时,先运行 `component_primitives.py`,再进入下一轮重建。它会把命名区域指标、ledger 轨道和 DOM 证据合成 primitive 工单,明确哪些文字、列表行、卡片、控件、图标、表格和 SVG 标记必须用组件重建,避免继续靠位图资产蒙混过关。
+- 修改 `component-required` 区域前先运行 `measure_primitives.py`。不要凭肉眼补 primitive;文字行、控件、图标、卡片、分隔线和 SVG 标记的坐标都应来自参考裁片测量。
+- measured primitive 修改后,用 `compare_region_metrics.py --regions <name> --fail-on-strict-regression` 对比干净基线 lab。只看截图更完整不可靠; strict 分区指标退步时不能算收敛。
 - 如果任务只是分析，不修改 App；只运行测量并报告可行性。
 - 如果任务是实现，先创建工作台，再围绕截图迭代代码重建。
 - 如果用户要求“全流程”或“组件化”，在写入最终产物前必须明确目标项目路径和项目内最终代码目录。
@@ -52,7 +57,10 @@ description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证
 6. 使用 `scripts/capture_modes.cjs` 按源图片原生尺寸捕获 `reference`、`rebuilt`、`exact` 模式。
 7. 运行 `scripts/pixel_diff.py` 生成 diff 图片和 JSON 指标。
 8. 运行 `scripts/plan_calibration.py` 生成 `calibration-plan.md`;下一轮迭代按其 pass 顺序执行(layout → tokens → islands → rebuild),出现 `slice-manifest.suggested.json` 时合并进你的 manifest。
-9. 写一份简短 QA 结果：
+9. 组件化门禁失败时,运行 `scripts/component_primitives.py`,再对最差的 `component-required` 区域运行 `scripts/measure_primitives.py`。
+10. 按 `measured-primitives.md` 中的坐标规格重建 DOM/SVG primitive,然后重新截图和 diff。
+11. 运行 `scripts/compare_region_metrics.py --baseline <clean-lab> --candidate <edited-lab>`,按分区 delta 决定保留或回退该组件策略。
+12. 写一份简短 QA 结果：
    - 源图片路径
    - 实现截图路径
    - viewport
@@ -192,6 +200,9 @@ python /path/to/pixel-twin-lab/scripts/init_component_flow.py \
 - `*-diff.png`
 - `pixel-diff-summary.json`(存在切片或 `regions.json` 时包含分区指标)
 - 每轮 `plan_calibration.py` 产出的 `calibration-plan.json` 和 `calibration-plan.md`
+- 组件化门禁失败后的 `component-primitives.json` 和 `component-primitives.md`
+- 修改组件区前的 `measured-primitives.json`、`measured-primitives.md` 和 `primitive-measurements/*.png`
+- 组件变体对比后的 `region-metric-comparison.json` 和 `region-metric-comparison.md`
 - 可选的 `slice-manifest.suggested.json`,计划器建议的切片岛区域
 - 可选的 `skeleton.suggested.css`,为计划器判为未实现的区域生成骨架容器
 - 可选的 `slice-manifest.json`,记录手工测量的命名切片矩形
