@@ -6,6 +6,19 @@ Turn a UI reference image — a screenshot, a mockup, or an AI-generated design 
 
 It is designed to run as an agent skill (Claude Code / Codex), but every step is a plain Python or Node script you can also run by hand.
 
+## Why this exists
+
+Vibe coding can move fast, but image-to-UI work often gets stuck in a fuzzy loop:
+
+- "Looks close" is subjective, and the reviewer has no number to decide whether the next edit helped.
+- A full-page screenshot diff tells you something is wrong, but not which component is responsible.
+- AI-generated UI images have no real layers, tokens, assets, or component boundaries to inspect.
+- Agents can accidentally chase a bitmap-perfect collage when the real goal is maintainable components.
+- Existing projects already have routers, styling systems, tokens, and UI libraries; a generic rebuild often ignores them.
+- There is usually no repeatable backtest record, so every iteration starts from visual guesswork again.
+
+Pixel Twin Lab turns that loop into a measurable workflow: capture the same viewport, compare the same regions, record the same metrics, and decide the next repair pass from evidence instead of vibes.
+
 ## What it does
 
 For each reference image, the lab generates an HTML workbench with four modes:
@@ -18,6 +31,46 @@ For each reference image, the lab generates an HTML workbench with four modes:
 The point is not to pretend every coded UI can be one-pixel-perfect. The point is to make the fidelity tradeoff **visible, measurable, and repeatable**: a pixel-diff image, a mismatch percentage, MAE, max delta, and per-region metrics that tell you exactly which part of the UI is worst.
 
 Beyond measurement, the skill drives a full componentization flow: it inspects a target project, follows its framework and styling conventions, writes production components into the project's source tree, and keeps all intermediate artifacts (slices, captures, diffs, ledgers) in a separate work folder.
+
+## Backtest and evaluation data
+
+This repository does not ship a fixed benchmark corpus yet. Its backtest data is generated per run, so every reconstruction can be replayed and compared against the same reference image:
+
+- `capture-meta.json` records the browser, viewport, device scale, color profile, and captured modes.
+- `pixel-diff-summary.json` records strict mismatch, tolerant mismatch, MAE, max delta, bounding box, and per-region metrics.
+- `*-diff.png` files show heatmaps of the actual visual error.
+- `calibration-plan.json` and `calibration-plan.md` classify regions into skeleton, layout, token, slice-island, and rebuild passes.
+- `triage-report.json` and `triage-report.md` explain the next action before another implementation edit.
+- `fidelity-gate.json` and `fidelity-gate.md` separate component-only, componentized-islands, approximation, hybrid asset, and placeholder results.
+- `component-primitives.md`, `measured-primitives.md`, and `region-metric-comparison.md` provide the next worklist when a componentized gate does not pass.
+
+The key evaluation signals are:
+
+- **Zero baseline**: `reference-capture.png` must diff near `0%` against the original reference before any fidelity number is trusted.
+- **Strict match**: `100 - mismatch_pct`, used by the 98% gates.
+- **Tolerant match**: ignores tiny per-channel deltas, useful for antialiasing and font residue.
+- **Worst regions**: per-region mismatch ranks the next component to repair.
+- **Asset coverage**: generated assets are counted and limited so a bitmap patch cannot be mislabeled as component restoration.
+
+## What it can do
+
+- Build a local visual QA workbench from a UI screenshot, design mockup, or AI-generated screen.
+- Capture reference, rebuilt, overlay, and exact-slice modes in a real browser at the reference image's native size.
+- Generate pixel-diff heatmaps and JSON metrics for the whole canvas and named regions.
+- Prove whether the screenshot environment is valid before spending time on CSS or components.
+- Separate bitmap-exact proof from maintainable component reconstruction.
+- Keep charts, maps, photos, avatars, and dense media as explicit slice islands when hand-coding them would be the wrong tradeoff.
+- Initialize a full componentization run inside a target project while respecting its framework, router, styling system, and UI libraries.
+- Produce recovery scaffolds, component ledgers, primitive worklists, and fidelity gates for iterative agent workflows.
+
+## Problems it solves
+
+- Replaces subjective visual review with repeatable metrics.
+- Prevents agents from hiding poor component work behind full-page raster patches.
+- Makes dense dashboards and low-contrast SaaS UIs debuggable region by region.
+- Gives teams a before/after record for every reconstruction pass.
+- Keeps temporary lab artifacts out of production source code.
+- Makes it clear when the deliverable is component-faithful, bitmap-exact, hybrid asset based, or only a placeholder contract.
 
 ## Requirements
 
