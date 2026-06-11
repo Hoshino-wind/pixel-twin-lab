@@ -107,6 +107,7 @@
 - 遵循项目现有框架和样式系统，不要把 lab 模板硬塞进生产代码。
 - 最终源码中只保留项目实际使用的资产；参考图和切片留在中间 run 文件夹。
 - 如果像素完美结果依赖位图切片，标记为“bitmap-perfect”，不要称为可维护组件实现。
+- 像素 diff 只管确定性的 DOM/CSS/SVG。canvas 图表、地图瓦片、WebGL/三维等独立渲染管线内容走 `approximation` 轨道:第三方库构建 + 区域级评价(`componentized_approximation_98`),不参与整页 strict;它们的容器几何仍按 strict 卡。第三方库需要的工程资产(glTF 模型、纹理、地图 style)是合法项目资产,不计入 island 面积上限。lab 内截图要保确定性:关图表动画、固定 devicePixelRatio、mock 地图瓦片、固定渲染后端。
 - 绝不把整页 surface patch 当成最终产品代码:覆盖大半页面的单张位图只能作为 ceiling 证明或诊断产物。目标是可维护组件时,按 UI 结构拆成区域级组件(header、weather、trip map、timeline 图标/文字、bottom nav 等),island 只保留区域内真正的位图内容,逐区域局部收敛直到组件化门禁通过,或明确报告剩余差距。`componentized_islands_98` 对资产覆盖面积有上限(总面积与单个资产),页面级贴图会直接判失败。
 - 交付时报告两套指标:`component faithful`(纯代码重建)和 `bitmap exact`(应用切片岛后),并列出哪些区域保留为切片岛。
 - 组件化门禁失败时附上 `component-primitives.md`;这是下一轮重建工单,防止 asset-only 修复被误判为组件还原。

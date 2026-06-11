@@ -42,6 +42,7 @@ English is the default runtime language for this skill. The Chinese mirror is av
 - Component-style restoration is the primary standard. A strict no-asset run satisfies `component_only_98` only when `rebuilt-capture.png` reaches at least 98% strict match with zero generated Image2/placeholder assets. For real UIs with photos/maps/avatars/charts, the practical componentized gate is `componentized_islands_98`: strict match >= 98%, generated assets only in approved `island` tracks, and all component tracks rebuilt as DOM/SVG.
 - A sampled-fill or absolute-rectangle skeleton is only a geometry diagnostic. It is not component-style restoration. For `component-only 98`, rebuild regions with semantic DOM/SVG primitives: real text nodes, table/list rows, nav items, controls, vector icons, and chart paths/marks.
 - The final deliverable is maintainable in-project components, never a whole-page bitmap. Decompose the screen into region-level components named after the UI (e.g. header, weather card, trip map, timeline rows, bottom nav) and converge each region locally with measured primitives. A full-surface patch — one bitmap covering most or all of the page, however high its match or large its file — is a diagnostic/ceiling artifact only and must never ship as final product code. `fidelity_gate.py` enforces this with asset coverage caps (`--max-asset-coverage`, `--max-single-asset-coverage`); island assets must stay region-scoped (a map tile, a photo), not page-scoped.
+- Pixel diff only governs what the browser layout engine renders deterministically (DOM/CSS/SVG). Content with an independent rendering pipeline — canvas charts, map tiles, WebGL/3D scenes, video, Lottie — belongs on the `approximation` track: build it with the appropriate third-party library, restyle it to the reference, and evaluate it per-region (tolerant mismatch + structural comparison via `compare_structure.py`) instead of whole-page strict. The container geometry (position, size, radius, border) is still DOM and still strict. Declare `eval: structural-only` in the ledger for WebGL/3D regions where even tolerant pixel comparison is meaningless across GPUs.
 - When `component_only_98` or `componentized_islands_98` fails, run `component_primitives.py` before another rebuild pass. It converts named-region metrics, ledger tracks, and DOM evidence into a primitive worklist so the next iteration targets text, rows, cards, controls, icons, tables, and SVG marks instead of adding more bitmap assets.
 - Before editing a `component-required` region, run `measure_primitives.py` on the reference crop. Do not add primitives by eye: measured boxes for text lines, controls, icons, cards, dividers, and SVG marks must guide CSS geometry.
 - After editing measured primitives, run `compare_region_metrics.py` against the clean baseline lab. Treat visual completeness as untrusted when strict or tolerant region metrics regress.
@@ -252,9 +253,19 @@ python /path/to/pixel-twin-lab/scripts/fidelity_gate.py \
 
 - `component_only_98`: passes only when strict match is at least 98% and no generated assets are present.
 - `componentized_islands_98`: passes when strict match is at least 98%, generated assets appear only on approved island tracks (`--allowed-asset-tracks`, default `island`), and asset coverage stays region-scoped: total generated-asset area <= `--max-asset-coverage` (default 40% of the page) and no single asset above `--max-single-asset-coverage` (default 30%). A page-sized surface patch fails this gate by design. Asset regions without verifiable bounds (in the ledger or `regions.json`) also fail it.
+- `componentized_approximation_98`: for runs with declared `approximation`-track regions (third-party charts/maps/3D). Passes when the component-track strict match (whole page minus approximation regions) is at least 98%, island assets are compliant, and every approximation region passes its own evaluation: tolerant mismatch <= `--approximation-tolerant-max` (default 25%) for `eval: tolerant+structural`, pixel-exempt for `eval: structural-only`. Structural results are read from `structural-comparison.json` (run `compare_structure.py`); pass `--require-structural` to make a missing structural report a failure instead of a warning.
 - `hybrid_asset_98`: passes when strict match is at least 98% with Image2-extract assets; this is not component-style success.
 - `placeholder_contract`: records same-size placeholders for models that cannot extract elements; this is never a fidelity pass by itself.
 - If `component_only_98` and `componentized_islands_98` both fail, do not try to pass by materializing `recovery-skeleton.css` or by placing assets over component regions; rebuild the worst named component regions as project-native DOM/SVG components and rerun the gate.
+
+Structurally verify approximation regions (third-party charts/maps/3D) against the reference:
+
+```bash
+python /path/to/pixel-twin-lab/scripts/compare_structure.py \
+  --out-dir /absolute/path/outputs/pixel-twin
+```
+
+`compare_structure.py` reads approximation-track regions from `recovery/component-ledger.json` (or `--regions` plus `regions.json`), detects primitive boxes on both the reference crop and the rebuilt capture crop, then compares primitive count (`--max-count-delta-pct`), mean matched position delta (`--max-position-delta`), and foreground mean color (`--max-palette-delta`). It writes `structural-comparison.json`/`.md` and overlay PNGs under `structural-measurements/`; `fidelity_gate.py` consumes the JSON for `componentized_approximation_98`. For charts disable animations and pin `devicePixelRatio` before capturing; for maps use a fixed style or mocked tiles, otherwise both pixel and structural comparisons are noise.
 
 Generate a component primitive worklist after a failed componentized gate:
 
@@ -323,6 +334,7 @@ Create or update these artifacts:
 - `calibration-plan.json` and `calibration-plan.md` after each `plan_calibration.py` round
 - `triage-report.json` and `triage-report.md` after each `triage_lab.py` round
 - `fidelity-gate.json` and `fidelity-gate.md` before claiming component, hybrid, or placeholder success
+- `structural-comparison.json`, `structural-comparison.md`, and `structural-measurements/*.png` when approximation-track regions (third-party charts/maps/3D) are part of the run
 - `component-primitives.json` and `component-primitives.md` after failed componentized gates
 - `measured-primitives.json`, `measured-primitives.md`, and `primitive-measurements/*.png` before component-required region edits
 - `region-metric-comparison.json` and `region-metric-comparison.md` after component variants are tested against a clean baseline

@@ -131,8 +131,8 @@ Use this loop for dense dashboards, analytics screens, low-contrast SaaS UIs, ma
 4. Run `bootstrap_recovery.py` once `regions.json` exists. Review `recovery/component-ledger.md` instead of hand-sorting the diff image.
 5. Classify or adjust each region before coding:
    - `component`: shell, nav, cards, controls, simple lists, layout chrome.
-   - `island`: charts, maps, photos, avatars, logos, dense tables, complex text blocks.
-   - `approximation`: areas that should be maintainable but are allowed to differ from the bitmap.
+   - `island`: photos, avatars, logos, decorative raster content with no interaction requirement.
+   - `approximation`: independent rendering pipelines rebuilt with third-party libraries — canvas charts (ECharts/Recharts), map tiles (Mapbox/Leaflet), WebGL/3D scenes (three.js), video, Lottie. Maintainable and interactive, evaluated per-region instead of whole-page strict. Static decorative charts in a pixel-first run may stay `island` instead.
 6. Start from skeleton geometry, not detailed visuals. Adapt `recovery/recovery-skeleton.css`, `RecoveryScaffold.jsx`, or equivalent project-native layout containers first.
 7. Merge slice islands early. Do not spend iterations hand-coding raster-like regions unless the user explicitly asks for that tradeoff.
 8. If Image2 is available, extract or regenerate high-error visual elements and embed them as assets in the component containers. If Image2 is unavailable, use same-size placeholders so the project code keeps a stable contract while fidelity is reported honestly.
@@ -147,6 +147,7 @@ Component-style restoration is the default success standard. Use these gates:
 
 - `component_only_98`: strict match is at least 98%, and the rebuilt capture uses no generated Image2 or placeholder assets.
 - `componentized_islands_98`: strict match is at least 98%, generated assets are limited to approved `island` tracks, asset coverage is region-scoped (total area within `--max-asset-coverage`, no single asset above `--max-single-asset-coverage`), and component regions remain DOM/SVG.
+- `componentized_approximation_98`: for runs containing `approximation`-track regions (third-party charts/maps/3D). Component-track strict match (whole page minus approximation regions) is at least 98%, island assets are compliant, and each approximation region passes its own evaluation — tolerant mismatch within `--approximation-tolerant-max` for `eval: tolerant+structural`, pixel-exempt for `eval: structural-only` (WebGL/3D), plus structural comparison from `compare_structure.py` (primitive count, position deltas, foreground palette). Container geometry of these regions stays in component tracks and stays strict.
 - `hybrid_asset_98`: strict match is at least 98% after embedding Image2-extracted/generated visual elements. This proves geometry and asset placement, not component restoration.
 - `placeholder_contract`: same-size placeholder assets exist for unavailable model outputs. This proves layout contracts only.
 
@@ -155,6 +156,8 @@ All fidelity gates also require a proven zero baseline (`reference-capture.png` 
 If the user asks for "componentized", "component-style", or "组件式还原", never mark the run complete from `hybrid_asset_98` alone. Keep rebuilding component regions until `component_only_98` or `componentized_islands_98` passes, or report the remaining gap explicitly.
 
 Do not treat a sampled-fill or absolute-rectangle skeleton as component restoration. It is a geometry diagnostic only. Component restoration must rebuild visible content as semantic DOM/SVG primitives: text, tables, lists, nav items, controls, vector icons, chart axes, chart marks, and repeated component structures.
+
+Pixel diff governs only deterministic browser rendering (DOM/CSS/SVG). Independent rendering pipelines — canvas, map tiles, WebGL — go on the `approximation` track with third-party libraries and per-region evaluation; demanding whole-page strict convergence from them misclassifies a correct engineering decision as a failure. Determinism still matters inside the lab: disable chart animations, pin `devicePixelRatio`, mock or fix map tiles, and pin the rendering backend before trusting any comparison, structural or pixel. Engineering assets these libraries need (glTF models, textures, map styles) are legitimate project assets, not generated bitmap patches, and are not counted against island coverage caps.
 
 Never ship a full-surface patch as final product code. A single bitmap covering most or all of the page — whatever its match percentage or file size — is only a ceiling proof or diagnostic artifact. When the goal is maintainable in-project components, split the screen into region-level components named after the UI (e.g. header, weather card, trip map, timeline icon/text rows, bottom nav), keep islands scoped to genuinely raster content inside those regions, and converge each region locally with measured primitives until the componentized gate passes or the remaining gap is reported explicitly.
 

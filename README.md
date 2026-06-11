@@ -66,6 +66,8 @@ For the full image-to-component flow into an existing project, start with `scrip
 | `scripts/plan_calibration.py` | Turn per-region diffs into an ordered repair plan (skeleton → layout → tokens → slice islands → rebuild), with ready-to-use skeleton CSS and island manifest suggestions |
 | `scripts/triage_lab.py` | Read lab config, diff metrics, and calibration output, then decide the next pass: environment, manual manifest, skeleton, islands, layout/tokens, or region rebuild |
 | `scripts/bootstrap_recovery.py` | Convert triage/planner output into starter manifests, a component/island ledger, island image crops, skeleton CSS, and an intermediate React scaffold |
+| `scripts/fidelity_gate.py` | Gate results without mixing types: component-only / componentized-islands / componentized-approximation / hybrid / placeholder, with baseline and asset-coverage enforcement |
+| `scripts/compare_structure.py` | Structurally compare approximation-track regions (third-party charts/maps/3D) between reference and rebuilt capture: primitive counts, position deltas, foreground palette |
 | `scripts/init_component_flow.py` | Initialize a componentization run against a target project (contract, map, ledger) |
 
 ## Using it as an agent skill

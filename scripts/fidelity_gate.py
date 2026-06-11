@@ -197,6 +197,126 @@ def summarize_asset_regions(regions: list[dict[str, Any]], evidence_source: str 
     }
 
 
+def rebuilt_region_metrics(rebuilt: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    metrics: dict[str, dict[str, Any]] = {}
+    for region in rebuilt.get("regions") or []:
+        if isinstance(region, dict) and region.get("name"):
+            metrics[str(region["name"])] = region
+    return metrics
+
+
+def evaluate_approximation_regions(
+    ledger: dict[str, Any],
+    region_metrics: dict[str, dict[str, Any]],
+    structural: dict[str, Any],
+    approximation_tracks: set[str],
+    tolerant_max: float,
+    require_structural: bool,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    regions = ledger.get("regions") if isinstance(ledger, dict) else None
+    for region in regions or []:
+        if not isinstance(region, dict):
+            continue
+        if str(region.get("track") or "") not in approximation_tracks:
+            continue
+        name = str(region.get("name") or "unknown")
+        eval_mode = str(region.get("eval") or "tolerant+structural")
+        metric_entry = region_metrics.get(name)
+        notes: list[str] = []
+
+        if eval_mode == "structural-only":
+            pixel_ok = True
+            tolerant = as_float((metric_entry or {}).get("mismatch_pct_tolerant"), None)
+            notes.append("pixel metrics exempt (independent rendering pipeline, e.g. WebGL)")
+        else:
+            tolerant = as_float((metric_entry or {}).get("mismatch_pct_tolerant"), None) if metric_entry else None
+            if tolerant is None:
+                pixel_ok = False
+                notes.append("tolerant mismatch missing; run pixel_diff.py with --tolerance and a regions entry for this name")
+            else:
+                pixel_ok = tolerant <= tolerant_max
+                if not pixel_ok:
+                    notes.append(f"tolerant mismatch {tolerant:.2f}% exceeds {tolerant_max:.2f}%")
+
+        structural_entry = structural.get(name) if isinstance(structural, dict) else None
+        structural_ok: bool | None
+        if isinstance(structural_entry, dict) and "pass" in structural_entry:
+            structural_ok = bool(structural_entry["pass"])
+            if not structural_ok:
+                notes.append("structural comparison failed; see structural-comparison.md")
+        else:
+            structural_ok = None
+            notes.append("structural comparison not run (compare_structure.py)")
+
+        region_pass = pixel_ok and structural_ok is not False
+        if require_structural and structural_ok is not True:
+            region_pass = False
+        results.append(
+            {
+                "name": name,
+                "track": region.get("track"),
+                "eval": eval_mode,
+                "strategy": region.get("strategy"),
+                "tolerant_mismatch_pct": tolerant,
+                "pixel_pass": pixel_ok,
+                "structural_pass": structural_ok,
+                "pass": region_pass,
+                "notes": notes,
+            }
+        )
+    return results
+
+
+def component_track_strict(
+    rebuilt: dict[str, Any],
+    region_metrics: dict[str, dict[str, Any]],
+    approximation_names: list[str],
+    page: tuple[int, int] | None,
+) -> dict[str, Any]:
+    whole_mismatch_pct = as_float(rebuilt.get("mismatch_pct"), 100.0)
+    total_mismatch = as_float(rebuilt.get("mismatch_pixels"), None)
+    if page:
+        total_pixels = page[0] * page[1]
+    elif total_mismatch is not None and whole_mismatch_pct > 0:
+        total_pixels = int(round(total_mismatch / whole_mismatch_pct * 100.0))
+    else:
+        total_pixels = 0
+    if total_mismatch is None and total_pixels:
+        total_mismatch = total_pixels * whole_mismatch_pct / 100.0
+
+    unmeasured: list[str] = []
+    excluded_mismatch = 0.0
+    excluded_area = 0
+    for name in approximation_names:
+        entry = region_metrics.get(name)
+        mismatch = as_float((entry or {}).get("mismatch_pixels"), None) if entry else None
+        if entry is None or mismatch is None:
+            unmeasured.append(name)
+            continue
+        excluded_mismatch += mismatch
+        excluded_area += int(as_float(entry.get("width"))) * int(as_float(entry.get("height")))
+
+    if not total_pixels or total_mismatch is None or unmeasured:
+        return {
+            "strict_mismatch_pct": None,
+            "strict_match_pct": None,
+            "excluded_area_px": excluded_area,
+            "unmeasured_regions": unmeasured,
+            "note": "component-track strict mismatch could not be computed"
+            + (f"; approximation regions without per-region metrics: {unmeasured}" if unmeasured else "; page dimensions or capture metrics missing"),
+        }
+    denominator = max(1, total_pixels - excluded_area)
+    mismatch_pct = max(0.0, total_mismatch - excluded_mismatch) / denominator * 100.0
+    return {
+        "strict_mismatch_pct": round(mismatch_pct, 4),
+        "strict_match_pct": round(100.0 - mismatch_pct, 4),
+        "excluded_area_px": excluded_area,
+        "unmeasured_regions": [],
+        "note": "whole-page strict metrics minus approximation-track regions (overlapping regions are subtracted once each)",
+    }
+
+
 def bad_asset_regions(asset_evidence: dict[str, Any], allowed_tracks: set[str]) -> list[dict[str, Any]]:
     bad: list[dict[str, Any]] = []
     for region in asset_evidence.get("generated_regions") or []:
@@ -267,6 +387,36 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- problem: {problem}")
     for item in (coverage.get("measured_regions") or [])[:10]:
         lines.append(f"- `{item.get('name')}` ({item.get('track')}): {item.get('area_pct')}% of page")
+    component_track = report.get("component_track") or {}
+    approximations = report.get("approximation_regions") or []
+    if approximations:
+        match_pct = component_track.get("strict_match_pct")
+        lines += [
+            "",
+            "## Component Track (approximation regions excluded)",
+            "",
+            f"- strict match: `{match_pct if match_pct is not None else 'n/a'}%`",
+            f"- excluded area: `{component_track.get('excluded_area_px', 0)}px`",
+            f"- {component_track.get('note', '')}",
+            "",
+            "## Approximation Regions",
+            "",
+            "| Region | Eval | Tolerant mismatch | Pixel | Structural | Result |",
+            "| --- | --- | ---: | --- | --- | --- |",
+        ]
+        for item in approximations:
+            tolerant = item.get("tolerant_mismatch_pct")
+            structural = item.get("structural_pass")
+            lines.append(
+                f"| `{item['name']}` | `{item['eval']}` | "
+                f"{f'{tolerant:.2f}%' if tolerant is not None else 'n/a'} | "
+                f"{'PASS' if item['pixel_pass'] else 'FAIL'} | "
+                f"{'PASS' if structural is True else 'FAIL' if structural is False else 'unverified'} | "
+                f"{'PASS' if item['pass'] else 'FAIL'} |"
+            )
+        for item in approximations:
+            for note in item.get("notes") or []:
+                lines.append(f"- `{item['name']}`: {note}")
     lines += [
         "",
         "## Asset Evidence",
@@ -315,6 +465,23 @@ def main() -> None:
         help="Any single generated asset covering more page area (pct) than this is flagged as a surface patch and fails componentized fidelity",
     )
     parser.add_argument("--recovery-dir", default="recovery", help="Recovery directory to inspect for generated assets")
+    parser.add_argument(
+        "--approximation-tracks",
+        default="approximation",
+        help="Comma-separated ledger tracks evaluated per-region (third-party charts/maps/3D) instead of whole-page strict",
+    )
+    parser.add_argument(
+        "--approximation-tolerant-max",
+        type=float,
+        default=25.0,
+        help="Max tolerant mismatch (pct) for an approximation region with eval 'tolerant+structural'",
+    )
+    parser.add_argument(
+        "--require-structural",
+        action="store_true",
+        help="Approximation regions must have a passing structural-comparison entry, not just an absent one",
+    )
+    parser.add_argument("--structural-name", default="structural-comparison.json", help="Structural comparison report filename")
     parser.add_argument(
         "--allowed-asset-tracks",
         default="island",
@@ -383,11 +550,59 @@ def main() -> None:
             )
     coverage_ok = not coverage_problems
 
+    approximation_tracks = {track.strip() for track in args.approximation_tracks.split(",") if track.strip()}
+    structural_report = load_json(out_dir / args.structural_name, {})
+    structural_regions = structural_report.get("regions") if isinstance(structural_report, dict) else {}
+    if not isinstance(structural_regions, dict):
+        structural_regions = {}
+    region_metrics = rebuilt_region_metrics(rebuilt)
+    approximation_results = evaluate_approximation_regions(
+        ledger,
+        region_metrics,
+        structural_regions,
+        approximation_tracks,
+        args.approximation_tolerant_max,
+        args.require_structural,
+    )
+    approximation_names = [item["name"] for item in approximation_results]
+    component_track = component_track_strict(rebuilt, region_metrics, approximation_names, page_dimensions(out_dir, ledger))
+    approximation_failures = [item for item in approximation_results if not item["pass"]]
+
     metric_pass = baseline_ok and strict_mismatch <= target_mismatch
     component_only_pass = metric_pass and generated_assets == 0
     componentized_islands_pass = metric_pass and not disallowed_assets and coverage_ok
     hybrid_pass = metric_pass and image2_assets > 0
     placeholder_contract = placeholder_assets > 0
+
+    component_track_match = component_track.get("strict_match_pct")
+    if not approximation_results:
+        approximation_pass = False
+        approximation_reason = "no approximation-track regions declared; use componentized_islands_98 instead"
+    elif not baseline_ok:
+        approximation_pass = False
+        approximation_reason = baseline_reason
+    elif component_track_match is None:
+        approximation_pass = False
+        approximation_reason = component_track["note"]
+    elif component_track_match < args.target_match:
+        approximation_pass = False
+        approximation_reason = (
+            f"component-track strict match {component_track_match:.4f}% is below {args.target_match:.4f}% "
+            "(whole page minus approximation regions)"
+        )
+    elif disallowed_assets or not coverage_ok:
+        approximation_pass = False
+        approximation_reason = "island asset rules failed" + ("" if coverage_ok else f"; {'; '.join(coverage_problems)}")
+    elif approximation_failures:
+        approximation_pass = False
+        names = [item["name"] for item in approximation_failures]
+        approximation_reason = f"approximation regions failed their own evaluation: {names}"
+    else:
+        approximation_pass = True
+        approximation_reason = (
+            f"component-track strict match {component_track_match:.4f}% >= {args.target_match:.4f}%, island assets compliant, "
+            f"and all {len(approximation_results)} approximation regions passed their per-region evaluation"
+        )
 
     baseline_suffix = "" if baseline_ok else f"; {baseline_reason}"
     coverage_suffix = "" if coverage_ok else f"; {'; '.join(coverage_problems)}"
@@ -416,6 +631,7 @@ def main() -> None:
                 else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, generated assets only on tracks {sorted(allowed_tracks)}, and region-scoped asset coverage; got strict match {strict_match:.4f}% and {len(disallowed_assets)} disallowed asset regions{baseline_suffix}{coverage_suffix}"
             ),
         ),
+        "componentized_approximation_98": status(approximation_pass, approximation_reason),
         "placeholder_contract": status(
             placeholder_contract,
             (
@@ -440,6 +656,14 @@ def main() -> None:
             "pass": coverage_ok,
             "problems": coverage_problems,
         },
+        "component_track": component_track,
+        "approximation_regions": approximation_results,
+        "approximation_settings": {
+            "tracks": sorted(approximation_tracks),
+            "tolerant_max_pct": args.approximation_tolerant_max,
+            "require_structural": args.require_structural,
+            "structural_report": str(out_dir / args.structural_name),
+        },
         "metrics": {"reference": reference, "rebuilt": rebuilt, "exact": exact},
         "asset_evidence": asset_evidence,
         "bad_asset_regions": disallowed_assets,
@@ -455,6 +679,7 @@ def main() -> None:
                 "strict_match_pct": round(strict_match, 4),
                 "component_only_98": gates["component_only_98"]["pass"],
                 "componentized_islands_98": gates["componentized_islands_98"]["pass"],
+                "componentized_approximation_98": gates["componentized_approximation_98"]["pass"],
                 "hybrid_asset_98": gates["hybrid_asset_98"]["pass"],
                 "placeholder_contract": gates["placeholder_contract"]["pass"],
                 "generated_asset_count": generated_assets,
