@@ -2,6 +2,8 @@
 
 Use this reference when the user wants a full image-to-component flow rather than only a pixel workbench.
 
+The primary flow is the Blueprint Workflow in `SKILL.md` (Phase 0 probe → 1 measure → 2 blueprint + `validate_blueprint.py` gate → 3 plan → 4 generate from the blueprint only → 5 backtest). This reference details the project-side specifics: directory contract, stack rules, recovery loop, gates, and handoff.
+
 ## Directory Contract
 
 Keep all intermediate artifacts under the target project:
@@ -161,6 +163,18 @@ Pixel diff governs only deterministic browser rendering (DOM/CSS/SVG). Independe
 
 Never ship a full-surface patch as final product code. A single bitmap covering most or all of the page — whatever its match percentage or file size — is only a ceiling proof or diagnostic artifact. When the goal is maintainable in-project components, split the screen into region-level components named after the UI (e.g. header, weather card, trip map, timeline icon/text rows, bottom nav), keep islands scoped to genuinely raster content inside those regions, and converge each region locally with measured primitives until the componentized gate passes or the remaining gap is reported explicitly.
 
+## Element Manifest (element → component mapping)
+
+Pixel metrics alone cannot say which visual elements exist or which component each belongs to — that gap is what made collage cheating possible and rebuilds guesswork. The element manifest closes it:
+
+1. Measure geometry: `measure_primitives.py` produces anonymous boxes per region.
+2. Scaffold: `init_element_manifest.py` turns the boxes into `element-manifest.json` entries with stable ids; re-runs merge without clobbering labels.
+3. Label (the agent's job — algorithms cannot do this): for every element set `type` (text/icon/image/control/list-item/card/divider/badge/chart-mark/container/decoration), `content` (extract real text; describe icons semantically), and `maps_to` (target component and slot, e.g. `WeatherCard/temperature`). Read the reference crops; do not guess.
+4. Implement: rebuilt DOM nodes carry `data-element="<id>"`. In the final project, keep the same ids on the corresponding component elements.
+5. Verify: `measure_dom_elements.cjs` dumps rendered geometry in reference coordinates; `verify_elements.py` checks presence, position/size deltas, text content, and type compatibility, writing `element-verification.json`.
+
+The `element_contract` gate consumes the verification result; once a manifest is declared, componentized gates require it. Use "N/M elements verified" as the progress meter across iterations — it is the scale the 98% gates lack. Verification failures are the next worklist, element by element.
+
 ## Stack and Styling Rules
 
 - Do not introduce a new styling system when the project already has one.
@@ -193,5 +207,6 @@ Never ship a full-surface patch as final product code. A single bitmap covering 
 - `pixel-diff-summary.json` or equivalent metrics are attached.
 - `triage-report.md` is attached when a calibration loop was run.
 - `fidelity-gate.md` is attached before any success claim.
+- `element-manifest.md` and `element-verification.md` are attached for component rebuild passes; the manifest must be fully labeled.
 - `recovery/component-ledger.md` is attached when recovery bootstrap was used.
 - Final response links both the final files and the intermediate workbench.

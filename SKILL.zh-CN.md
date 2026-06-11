@@ -1,18 +1,18 @@
 ---
 name: pixel-twin-lab
-description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证本地像素还原工作台，然后把组件化流程写入目标项目。适用于需要精确复刻图片 UI、将实现与参考图对比、运行 reference/rebuilt/overlay/exact-slice 模式、生成像素 diff 截图、量化 mismatch、分离中间产物与最终项目代码，或判断某个设计应走一像素级位图还原还是组件化还原的任务。
+description: 把 UI 图片(截图、Image Gen 结果或 mockup)拆解成五层工程蓝图——视觉布局、组件语义、设计 token、交互行为、项目实现——然后在目标项目中生成高保真、可交互的页面,并用截图回测校验。适用于把 UI 图变成真实项目组件、忠实复刻图片 UI、将实现与参考图对比、生成像素 diff 截图、量化 mismatch,或判断某个设计应走位图还原还是组件化还原的任务。
 ---
 
 # Pixel Twin Lab
 
-使用这个 skill 可以把一张 UI 参考图变成本地视觉 QA 工作台：
+这个 skill 不是"帮模型把图贴得更像",而是**强制模型先把 UI 图拆成页面工程结构(蓝图),再从蓝图写代码,再用截图回测校准**。直接看图生成代码必然失真,因为模型在目测几何;这里代码用到的每个数字都来自测量,每个断言都被截图 diff 验证。
 
-- `Reference`：原始图片，作为视觉真值。
-- `Rebuilt`：代码/组件重建结果。
-- `Overlay`：把参考图以可调透明度叠在重建结果上。
-- `Exact Slice`：把位图切片按测量坐标贴回去，用来展示位图级还原上限。
+静态 HTML lab 是量具,不是交付物:
 
-这个 skill 的目标不是假装所有代码 UI 都能一像素不差，而是让“位图级精确”和“可维护组件实现”之间的取舍变得可见、可测、可复用。
+- `Reference`:原始图片,作为视觉真值。
+- `Rebuilt`:被测的代码/组件重建结果。
+- `Overlay`:把参考图以可调透明度叠在重建结果上。
+- `Exact Slice`:位图切片按测量坐标贴回——只用于天花板诊断,绝不是交付物。
 
 英文是默认运行语言。中文镜像用于人工阅读；如果要让 Codex 默认读取中文，可把本文件内容替换到 `SKILL.md`。`agents/openai.yaml` 仅供 Codex 调用；本 skill 的运行入口是 `SKILL.md` 和 `scripts/`。
 
@@ -24,8 +24,35 @@ description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证
 - 截图:完整 `playwright` 包(自带 Chromium),或 `playwright-core` 加系统 Chrome/Chromium(macOS/Linux/Windows 自动探测,也可设 `CHROME_PATH`)。
 - 运行前自检:`python3 -c "import PIL"` 和 `node -e "require('playwright-core')"`(或 `playwright`)。
 
+## 蓝图工作流(主流程)
+
+"把这张图做进我的项目"一律走这六个阶段,lab 测量循环只服务于 Phase 1 和 5:
+
+- **Phase 0 探查**:`init_component_flow.py` 探查目标项目,读 `component-contract.json` 的 project_profile(框架/样式系统/UI 库/已有组件与 token),后续一切生成都受它约束。
+- **Phase 1 测量**:`prepare_lab.py`(架设量具)→ 证明零基线 → `measure_primitives.py` 逐区域测量 → `extract_tokens.py`(颜色聚类/字号/间距)→ `infer_layout.py`(flex/grid 关系推断,带置信度)。下游用到的任何 bounds/颜色/字号必须出自这些产物,禁止目测。
+- **Phase 2 蓝图**:对照参考裁片和测量数据,撰写 `ui-blueprint.json`(schema 见 `schemas/ui-blueprint.schema.json`),五层齐全:视觉布局(区域 + 布局关系,不可信的推断显式标 absolute-fallback)、组件语义(是什么 + 文字内容 + maps_to 复用映射)、设计 token(全部 CSS 值的唯一来源,优先映射项目已有 token)、交互行为(可点击/tab 切换/筛选改数据/弹窗/hover/loading/empty,按"项目惯例 > 项目 token > 类型默认"推导并声明 source,绝不假装从图里读出来)、项目实现(每组件 reuse/extend/create + 顺序 + 验收)。然后跑 `validate_blueprint.py` 做 schema 校验 + 测量对账。**硬门禁:校验不过,禁止写任何项目代码。**
+- **Phase 3 规划**:从蓝图实现层写 `implementation-plan.md`(生成顺序、复用映射、island/approximation 声明、逐组件验收)。
+- **Phase 4 生成**:按计划顺序在目标项目写原生组件。**代码只读蓝图,不读原图**——发现不对先改蓝图、重新校验、再生成,不许对着图目测改 CSS;DOM 带与蓝图一致的 `data-element` id;图表/地图/3D 走 approximation 轨道;绝不把 lab HTML 塞进项目。
+- **Phase 5 回测**:截取真实路由 → `pixel_diff.py` → `verify_elements.py` → `fidelity_gate.py`;每个失败项映射回蓝图条目或生成 bug,4↔5 循环(蓝图本身错则回 2),用"N/M 元素已验证"作为进度刻度,直到门禁通过或显式报告剩余差距。
+
+## 编排式蓝图工作流(密集 UI)
+
+区域多、组件数十个、带图表/表格/小字的 dashboard,走同样的六阶段,但用子 agent 扇出 + 信息隔离执行(完整手册与子 agent 提示词模板见 `references/orchestration-playbook.md`):
+
+1. Phase 0-1 仍由主 agent 串行完成。
+2. 主 agent 写 `blueprint-skeleton.json`(页面级区域 + implementation 头),`make_region_packets.py` 按区域切工作包:裁片 + 测量 + token + 片段模板 + 说明。
+3. 每个区域并行派一个拆分子 agent,只看自己的工作包,产出 `fragment.json`——新鲜上下文逐区标注,是密集 UI 上标注精度的来源。
+4. `merge_blueprint.py` 确定性合并片段(id 唯一性、token 去重并改写引用、默认 plan)成 `ui-blueprint.json`,再过 `validate_blueprint.py` 同一道硬门禁。
+5. `make_codegen_packets.py`(校验未通过时拒绝运行)按组件切生成工作包,**包内不含任何图片路径**;每组件派一个生成子 agent。隔离让目测漂移从"被禁止"变成"不可能"。
+6. Phase 5 回测由主 agent 执行;只对失败组件附带失败证据定点重派。
+
+运行环境没有子 agent 能力时,按阶段顺序串行执行同样的工作包——产物和门禁与主流程完全一致。
+
 ## 决策规则
 
+- 蓝图先于代码:没有通过 `validate_blueprint.py` 的 `ui-blueprint.json`,不写任何项目代码——发现自己在无蓝图写组件,停下回 Phase 2。
+- 代码生成只读蓝图,不读原图。原图只是测量和蓝图撰写的输入。"对着截图目测调 CSS"正是这个 skill 要消灭的失败模式。
+- 交互是推导不是提取:项目惯例 > 项目 token > 元素类型默认,逐条声明 source。单帧截图不含交互信息,不要假装能读出来。
 - 如果用户要求“一像素不差”，优先保留原始位图或使用位图切片；说明真正 `0%` diff 不等于可维护的 App UI。
 - 如果用户要求真实 App，使用 `Rebuilt` 模式构建组件，并用 diff 作为校准循环。
 - 如果参考图来自 AI 生成 UI，默认没有真实图层、token 或素材源；需要从位图中提取。
@@ -41,6 +68,8 @@ description: 从 UI 图片、截图、Image Gen 结果或 mockup 构建并验证
 - 像素 diff 只统治浏览器排版引擎能确定性渲染的部分(DOM/CSS/SVG)。带独立渲染管线的内容——canvas 图表、地图瓦片、WebGL/三维场景、视频、Lottie——归入 `approximation` 轨道:用合适的第三方库构建(ECharts/Mapbox/three.js 等)并定制样式,按区域评价(tolerant mismatch + `compare_structure.py` 结构对比)而不是参与整页 strict;容器几何(位置、尺寸、圆角、边框)仍是 DOM,仍按 strict 卡。WebGL/三维区域在 ledger 里声明 `eval: structural-only`,跨 GPU 连 tolerant 像素对比都没有意义。对应门禁是 `componentized_approximation_98`:component 轨道 strict(整页减去 approximation 区域)≥ 98% + island 资产合规 + 每个 approximation 区域过自己的评价。图表截图前关动画、固定 `devicePixelRatio`;地图用固定 style 或 mock 瓦片,否则像素和结构对比都是噪声。
 - 当 `component_only_98` 或 `componentized_islands_98` 未通过时,先运行 `component_primitives.py`,再进入下一轮重建。它会把命名区域指标、ledger 轨道和 DOM 证据合成 primitive 工单,明确哪些文字、列表行、卡片、控件、图标、表格和 SVG 标记必须用组件重建,避免继续靠位图资产蒙混过关。
 - 修改 `component-required` 区域前先运行 `measure_primitives.py`。不要凭肉眼补 primitive;文字行、控件、图标、卡片、分隔线和 SVG 标记的坐标都应来自参考裁片测量。
+- 测量之后、写 DOM 之前,先建元素清单:运行 `init_element_manifest.py` 把测量框生成 `element-manifest.json`,然后由你(agent)对照参考裁片给每个元素标注 `type`(text/icon/control 等)、`content`(文字元素提取真实文字,图标写语义描述)和 `maps_to`(目标组件及槽位,如 `WeatherCard/temperature`)。这就是"元素 → 组件"映射层:算法给几何,你给语义。重建的 DOM 节点必须带 `data-element="<id>"`。
+- 重建后运行 `measure_dom_elements.cjs`(实测每个 data-element 节点在参考坐标系下的几何)和 `verify_elements.py`(逐元素校验存在性、几何偏差、文字内容、类型兼容)。贴图无法满足这份合同——它没有可逐个寻址的元素——所以蒙混通道在语义层被关死。声明了 manifest 后,componentized 门禁同时要求 `element_contract` 通过。"38/52 个元素已验证"同时就是迭代进度刻度。
 - measured primitive 修改后,用 `compare_region_metrics.py --regions <name> --fail-on-strict-regression` 对比干净基线 lab。只看截图更完整不可靠; strict 分区指标退步时不能算收敛。
 - 如果任务只是分析，不修改 App；只运行测量并报告可行性。
 - 如果任务是实现，先创建工作台，再围绕截图迭代代码重建。

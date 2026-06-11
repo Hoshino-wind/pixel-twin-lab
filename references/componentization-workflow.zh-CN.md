@@ -112,6 +112,7 @@
 - 交付时报告两套指标:`component faithful`(纯代码重建)和 `bitmap exact`(应用切片岛后),并列出哪些区域保留为切片岛。
 - 组件化门禁失败时附上 `component-primitives.md`;这是下一轮重建工单,防止 asset-only 修复被误判为组件还原。
 - 声称某个 component-required 区域已重建前,附上 `measured-primitives.md`;它证明这次修改依据参考几何,不是肉眼猜测。
+- 组件重建 pass 需附上 `element-manifest.md`(必须全部标注完)和 `element-verification.md`;像素证明"长得像",元素合同证明"是由什么构成的"。流程:measure_primitives 测几何 → init_element_manifest 起清单 → agent 对照参考裁片标注 type/content/maps_to → DOM 带 data-element id → measure_dom_elements.cjs + verify_elements.py 逐元素校验。验证失败项就是下一轮工单,"N/M 元素已验证"就是进度刻度。
 - 组件变体需要附上 `region-metric-comparison.md`;它证明该修改对命名区域是改善还是退步。
 - 如果组件实现仍有视觉差异，报告具体 mismatch 和下一步校准动作。
 

@@ -568,9 +568,32 @@ def main() -> None:
     component_track = component_track_strict(rebuilt, region_metrics, approximation_names, page_dimensions(out_dir, ledger))
     approximation_failures = [item for item in approximation_results if not item["pass"]]
 
+    element_manifest_path = out_dir / "element-manifest.json"
+    element_verification = load_json(out_dir / "element-verification.json", {})
+    element_summary = element_verification.get("summary") if isinstance(element_verification, dict) else None
+    if not element_manifest_path.exists():
+        element_ok: bool | None = None
+        element_reason = (
+            "no element manifest declared; element-level contract unchecked "
+            "(measure_primitives.py -> init_element_manifest.py -> label -> verify_elements.py)"
+        )
+    elif not isinstance(element_summary, dict):
+        element_ok = False
+        element_reason = (
+            "element-manifest.json exists but element-verification.json is missing; "
+            "run measure_dom_elements.cjs and verify_elements.py"
+        )
+    else:
+        element_ok = bool(element_summary.get("pass"))
+        element_reason = (
+            f"{element_summary.get('ok', 0)}/{element_summary.get('total', 0)} elements verified, "
+            f"missing {element_summary.get('missing', 0)}, failed {element_summary.get('failed', 0)}, "
+            f"unlabeled {element_summary.get('unlabeled', 0)}"
+        )
+
     metric_pass = baseline_ok and strict_mismatch <= target_mismatch
-    component_only_pass = metric_pass and generated_assets == 0
-    componentized_islands_pass = metric_pass and not disallowed_assets and coverage_ok
+    component_only_pass = metric_pass and generated_assets == 0 and element_ok is not False
+    componentized_islands_pass = metric_pass and not disallowed_assets and coverage_ok and element_ok is not False
     hybrid_pass = metric_pass and image2_assets > 0
     placeholder_contract = placeholder_assets > 0
 
@@ -597,6 +620,9 @@ def main() -> None:
         approximation_pass = False
         names = [item["name"] for item in approximation_failures]
         approximation_reason = f"approximation regions failed their own evaluation: {names}"
+    elif element_ok is False:
+        approximation_pass = False
+        approximation_reason = f"element contract failed: {element_reason}"
     else:
         approximation_pass = True
         approximation_reason = (
@@ -606,13 +632,14 @@ def main() -> None:
 
     baseline_suffix = "" if baseline_ok else f"; {baseline_reason}"
     coverage_suffix = "" if coverage_ok else f"; {'; '.join(coverage_problems)}"
+    element_suffix = "" if element_ok is not False else f"; element contract failed: {element_reason}"
     gates = {
         "component_only_98": status(
             component_only_pass,
             (
                 f"strict match {strict_match:.4f}% >= {args.target_match:.4f}% with no generated assets"
                 if component_only_pass
-                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, and generated_asset_count = 0; got strict match {strict_match:.4f}% and generated_asset_count {generated_assets}{baseline_suffix}"
+                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, and generated_asset_count = 0; got strict match {strict_match:.4f}% and generated_asset_count {generated_assets}{baseline_suffix}{element_suffix}"
             ),
         ),
         "hybrid_asset_98": status(
@@ -628,10 +655,16 @@ def main() -> None:
             (
                 f"strict match {strict_match:.4f}% >= {args.target_match:.4f}%, all generated assets limited to tracks {sorted(allowed_tracks)}, and asset coverage {coverage['total_asset_coverage_pct']:.2f}% within {args.max_asset_coverage:.1f}%"
                 if componentized_islands_pass
-                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, generated assets only on tracks {sorted(allowed_tracks)}, and region-scoped asset coverage; got strict match {strict_match:.4f}% and {len(disallowed_assets)} disallowed asset regions{baseline_suffix}{coverage_suffix}"
+                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, generated assets only on tracks {sorted(allowed_tracks)}, and region-scoped asset coverage; got strict match {strict_match:.4f}% and {len(disallowed_assets)} disallowed asset regions{baseline_suffix}{coverage_suffix}{element_suffix}"
             ),
         ),
         "componentized_approximation_98": status(approximation_pass, approximation_reason),
+        "element_contract": status(
+            element_ok is True,
+            element_reason
+            if element_ok is True
+            else f"requires a fully labeled element manifest verified against the rendered DOM; {element_reason}",
+        ),
         "placeholder_contract": status(
             placeholder_contract,
             (
@@ -655,6 +688,12 @@ def main() -> None:
             "max_single_asset_coverage_pct": args.max_single_asset_coverage,
             "pass": coverage_ok,
             "problems": coverage_problems,
+        },
+        "element_contract": {
+            "declared": element_manifest_path.exists(),
+            "pass": element_ok,
+            "reason": element_reason,
+            "summary": element_summary,
         },
         "component_track": component_track,
         "approximation_regions": approximation_results,
@@ -680,6 +719,7 @@ def main() -> None:
                 "component_only_98": gates["component_only_98"]["pass"],
                 "componentized_islands_98": gates["componentized_islands_98"]["pass"],
                 "componentized_approximation_98": gates["componentized_approximation_98"]["pass"],
+                "element_contract": gates["element_contract"]["pass"],
                 "hybrid_asset_98": gates["hybrid_asset_98"]["pass"],
                 "placeholder_contract": gates["placeholder_contract"]["pass"],
                 "generated_asset_count": generated_assets,

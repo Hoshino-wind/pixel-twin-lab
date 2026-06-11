@@ -1,0 +1,235 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "pixel-twin-lab/ui-blueprint.schema.json",
+  "title": "UI Blueprint",
+  "description": "Machine-readable five-layer decomposition of a UI reference image: visual layout, component semantics, design tokens, interaction behavior, and project implementation. The blueprint is authored by the model but every layer must be reconcilable against measurements (validate_blueprint.py). Code generation reads this file, never the raw image.",
+  "type": "object",
+  "required": ["version", "source", "layout", "components", "tokens", "interactions", "implementation"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "generated_at": { "type": "string" },
+    "source": {
+      "type": "object",
+      "required": ["reference", "width", "height"],
+      "additionalProperties": true,
+      "properties": {
+        "reference": { "type": "string", "description": "Path to the reference image this blueprint decomposes" },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "background": { "type": "string", "description": "Canvas background color, e.g. #ffffff" }
+      }
+    },
+
+    "layout": {
+      "description": "Layer 1 - visual layout: canvas-level region decomposition. Bounds must come from measurement, not eyeballing.",
+      "type": "object",
+      "required": ["regions"],
+      "additionalProperties": false,
+      "properties": {
+        "regions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "bounds", "role", "track"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+              "bounds": { "$ref": "#/definitions/bounds" },
+              "role": {
+                "enum": ["app-shell", "navigation", "topbar", "sidebar", "content", "card", "table", "list", "chart", "media", "footer", "modal", "other"]
+              },
+              "track": {
+                "enum": ["component", "island", "approximation"],
+                "description": "component: DOM/CSS/SVG rebuild; island: region-scoped bitmap asset; approximation: third-party rendering pipeline (charts/maps/3D)"
+              },
+              "parent": { "type": "string", "description": "Name of the containing region, omitted for top-level regions" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "relations": {
+          "description": "Inferred flex/grid relationships (infer_layout.py output, reviewed by the model). Prefer flow layout; fall back explicitly when inference is not trustworthy.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["scope", "type", "items", "confidence"],
+            "additionalProperties": false,
+            "properties": {
+              "scope": { "type": "string", "description": "Region name this relation lays out" },
+              "type": { "enum": ["row", "column", "grid", "stack", "absolute-fallback"] },
+              "items": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Component ids or child region names in order" },
+              "gap_px": { "type": "number", "minimum": 0 },
+              "columns": { "type": "integer", "minimum": 1 },
+              "align": { "enum": ["start", "center", "end", "stretch", "space-between"] },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "notes": { "type": "string", "description": "Required when type is absolute-fallback: why inference was not trusted" }
+            }
+          }
+        }
+      }
+    },
+
+    "components": {
+      "description": "Layer 2 - component semantics: what each thing IS, and which project component it maps to. Element ids must stay consistent with element-manifest.json and the rendered data-element attributes.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "region", "type", "bounds"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "region": { "type": "string" },
+          "type": {
+            "enum": ["button", "input", "select", "checkbox", "switch", "tabs", "tab-item", "menu", "menu-item", "card", "table", "table-row", "list", "list-item", "badge", "avatar", "icon", "image", "text", "heading", "divider", "progress", "chart-container", "map-container", "media", "nav-item", "breadcrumb", "pagination", "tooltip-anchor", "container", "other"]
+          },
+          "bounds": { "$ref": "#/definitions/bounds" },
+          "content": { "type": "string", "description": "Extracted text for text-bearing components; semantic description otherwise" },
+          "maps_to": { "type": "string", "description": "Project component and slot, e.g. 'src/components/StatCard:value' or 'NEW:WeatherCard'" },
+          "elements": {
+            "type": "array",
+            "description": "Fine-grained children carrying data-element ids; geometry from measured-primitives",
+            "items": {
+              "type": "object",
+              "required": ["id", "type", "bounds"],
+              "additionalProperties": false,
+              "properties": {
+                "id": { "type": "string" },
+                "type": { "enum": ["text", "icon", "image", "control", "list-item", "card", "divider", "badge", "chart-mark", "container", "decoration"] },
+                "bounds": { "$ref": "#/definitions/bounds" },
+                "content": { "type": "string" },
+                "token_refs": { "type": "array", "items": { "type": "string" }, "description": "Names of tokens this element uses (color/typography/radius...)" }
+              }
+            }
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+
+    "tokens": {
+      "description": "Layer 3 - design tokens extracted from the image (extract_tokens.py output, curated by the model). Every color must be sampleable in the reference; every type size must come from measured text boxes.",
+      "type": "object",
+      "required": ["colors", "typography", "spacing"],
+      "additionalProperties": false,
+      "properties": {
+        "colors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "value"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+              "value": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+              "usage": { "type": "string", "description": "e.g. primary, surface, text-primary, border" },
+              "sampled_at": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2, "description": "[x, y] in reference coordinates where this color can be verified" },
+              "maps_to": { "type": "string", "description": "Existing project token to reuse instead, e.g. 'theme.colors.primary'" }
+            }
+          }
+        },
+        "typography": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "size_px"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+              "size_px": { "type": "number", "minimum": 4 },
+              "weight": { "enum": ["regular", "medium", "semibold", "bold"] },
+              "line_height_px": { "type": "number" },
+              "measured_from": { "type": "string", "description": "Element id whose measured box supports this size" },
+              "maps_to": { "type": "string" }
+            }
+          }
+        },
+        "spacing": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "px"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "px": { "type": "number", "minimum": 0 },
+              "maps_to": { "type": "string" }
+            }
+          }
+        },
+        "radius": { "type": "array", "items": { "type": "object", "required": ["name", "px"], "additionalProperties": false, "properties": { "name": { "type": "string" }, "px": { "type": "number" }, "maps_to": { "type": "string" } } } },
+        "shadows": { "type": "array", "items": { "type": "object", "required": ["name", "value"], "additionalProperties": false, "properties": { "name": { "type": "string" }, "value": { "type": "string" }, "maps_to": { "type": "string" } } } },
+        "borders": { "type": "array", "items": { "type": "object", "required": ["name", "value"], "additionalProperties": false, "properties": { "name": { "type": "string" }, "value": { "type": "string" }, "maps_to": { "type": "string" } } } }
+      }
+    },
+
+    "interactions": {
+      "description": "Layer 4 - interaction behavior. Never extracted from the image: derived from project conventions > project tokens > element-type defaults, and the source must be declared. Includes page-level behavior (tab switches, filters changing data, dialogs, loading/empty states).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "trigger", "behavior", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "target": { "type": "string", "description": "Component id" },
+          "trigger": { "enum": ["click", "hover", "focus", "input", "submit", "tab-switch", "filter-change", "select", "toggle", "scroll", "load"] },
+          "behavior": { "type": "string", "description": "What happens, e.g. 'switches content panel to the selected tab', 'opens detail modal'" },
+          "states": {
+            "type": "array",
+            "items": { "enum": ["hover", "active", "focus", "disabled", "selected", "loading", "empty", "error"] }
+          },
+          "source": {
+            "enum": ["project-convention", "project-token", "type-default"],
+            "description": "Where this interaction design came from; interaction tokens must not be invented outside the project's system"
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+
+    "implementation": {
+      "description": "Layer 5 - project implementation plan: generate with the target project's existing stack, never by pasting lab HTML.",
+      "type": "object",
+      "required": ["framework", "styling", "plan"],
+      "additionalProperties": false,
+      "properties": {
+        "framework": { "type": "string", "description": "From project-profile, e.g. react, next, vue" },
+        "styling": { "type": "string", "description": "e.g. tailwind, css-modules, styled-components" },
+        "ui_library": { "type": "string", "description": "e.g. antd, mui, none" },
+        "final_dir": { "type": "string", "description": "Project-relative directory where final components are written" },
+        "plan": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["component_id", "action", "order"],
+            "additionalProperties": false,
+            "properties": {
+              "component_id": { "type": "string" },
+              "action": { "enum": ["reuse", "extend", "create"] },
+              "target": { "type": "string", "description": "Project component path to reuse/extend, or the new component's path" },
+              "order": { "type": "integer", "minimum": 1 },
+              "acceptance": { "type": "string", "description": "Per-component acceptance criteria beyond the global gates" }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "definitions": {
+    "bounds": {
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md)
 
-Turn a UI reference image — a screenshot, a mockup, or an AI-generated design — into a local visual QA workbench. Pixel Twin Lab rebuilds the UI in code, screenshots it in a real browser, and measures the pixel-level difference against the original image, so "looks the same" becomes a number instead of an opinion.
+Turn a UI reference image — a screenshot, a mockup, or an AI-generated design — into a high-fidelity, interactive page in a real project. Pixel Twin Lab forces a decomposition-first pipeline: decompose the image into a five-layer engineering blueprint (visual layout, component semantics, design tokens, interaction behavior, project implementation), generate project-native components from the blueprint, and verify the result with browser screenshots and pixel-level metrics, so "looks the same" becomes a number instead of an opinion.
 
 It is designed to run as an agent skill (Claude Code / Codex), but every step is a plain Python or Node script you can also run by hand.
 
@@ -121,6 +121,15 @@ For the full image-to-component flow into an existing project, start with `scrip
 | `scripts/bootstrap_recovery.py` | Convert triage/planner output into starter manifests, a component/island ledger, island image crops, skeleton CSS, and an intermediate React scaffold |
 | `scripts/fidelity_gate.py` | Gate results without mixing types: component-only / componentized-islands / componentized-approximation / hybrid / placeholder, with baseline and asset-coverage enforcement |
 | `scripts/compare_structure.py` | Structurally compare approximation-track regions (third-party charts/maps/3D) between reference and rebuilt capture: primitive counts, position deltas, foreground palette |
+| `scripts/init_element_manifest.py` | Scaffold the element manifest (element → component mapping) from measured primitive boxes, for the agent to label with type/content/maps_to |
+| `scripts/measure_dom_elements.cjs` | Measure rendered `[data-element]` nodes in the rebuilt layer (geometry in reference coordinates, text, tag, svg/img evidence) |
+| `scripts/verify_elements.py` | Verify the rendered DOM against the element manifest: presence, geometry, text content, and type compatibility per element |
+| `scripts/extract_tokens.py` | Extract design tokens from the reference: color clusters with verifiable sample coordinates, type sizes from measured text boxes, spacing scale from measured gaps |
+| `scripts/infer_layout.py` | Infer flex/grid layout relations (row/column/grid/stack) from measured boxes, with confidence scores and explicit absolute-fallback |
+| `scripts/validate_blueprint.py` | Gate the five-layer `ui-blueprint.json`: schema checks, cross-layer references, and reconciliation against measurements and reference pixels — code generation is blocked while it fails |
+| `scripts/make_region_packets.py` | Cut per-region work packets (crop, measurements, tokens, fragment template) for parallel decompose subagents that each see only one region |
+| `scripts/merge_blueprint.py` | Deterministically merge region fragments into `ui-blueprint.json`: id uniqueness, token dedup with reference rewriting, default implementation plan |
+| `scripts/make_codegen_packets.py` | Cut per-component codegen packets containing no image paths — codegen subagents implement from blueprint data only; refuses to run while blueprint validation fails |
 | `scripts/init_component_flow.py` | Initialize a componentization run against a target project (contract, map, ledger) |
 
 ## Using it as an agent skill
