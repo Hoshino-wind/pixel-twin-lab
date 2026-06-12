@@ -46,6 +46,16 @@ you have no access to the rest of the reference image, and you must not ask for 
    "sampled_at": [x, y], "usage": "..."}}`. For `kind: "colors"`, `sampled_at` (absolute
    reference coordinates) is mandatory. Prefer reusing names already present in `tokens.json`
    via element `token_refs` instead of proposing duplicates.
+6. Every data-driven component (`table`, `list`, `chart-container`, and `map-container`
+   when it shows data) must get one entry in `data`:
+   `{{"component_id": "...", "shape": "rows|items|series|keyvalue|tree|geo",
+   "fields": [...], "mock_data": [...], "binding": "rows|items|option.series...",
+   "source": "extracted|approximated", "library": "echarts|leaflet|..."}}`.
+   For tables/lists, `mock_data` is the verbatim transcription of the visible rows
+   (`source: "extracted"`) - put the row content here as structured records, not as dozens
+   of separate elements. For charts, read the data approximately (series count, point
+   count, value range, trend) with `source: "approximated"` and declare the rendering
+   `library`; never describe chart marks as individual elements to be drawn.
 """
 
 
@@ -133,6 +143,7 @@ def build_fragment_template(name: str, bounds: dict[str, int]) -> dict[str, Any]
         "region_bounds": bounds,
         "components": [],
         "interactions": [],
+        "data": [],
         "token_proposals": [],
     }
 

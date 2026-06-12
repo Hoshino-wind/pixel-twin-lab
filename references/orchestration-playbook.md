@@ -45,6 +45,11 @@ the files in <lab>/packets/regions/<region>/ — do not open the full reference 
    - interactions: one entry per interactive component (button/input/select/tabs/checkbox/switch
      at minimum), trigger + behavior + states + source. You were given the project's interaction
      conventions below; cite source accordingly.
+   - data: one entry per data-driven component (table/list/chart-container, map-container when it
+     shows data): shape + fields + mock_data + binding + source. Tables/lists: transcribe the
+     visible rows verbatim as structured records (source "extracted") — into mock_data, NOT as
+     dozens of separate elements. Charts: read approximately (series/points/range/trend, source
+     "approximated") and declare the library (default echarts); never list chart marks as elements.
    - token_proposals: only for colors/sizes genuinely absent from tokens.json; colors must include
      a sampled_at coordinate inside this region.
 3. If a measured box is unidentifiable, add it as type "decoration" with a note — do not drop it.
@@ -70,7 +75,11 @@ report the gap — looking at pictures to fill it is the failure mode this pipel
 3. Every element in the packet must render a DOM node with data-element="<element id>".
 4. Style values must come from the packet's tokens (prefer maps_to project tokens). Do not invent
    colors, sizes, or spacing.
-5. Implement every interaction entry and all its declared states; wire behaviors to stub handlers
+5. When the packet has data entries, render FROM the data: one row/item template mapped over
+   mock_data (container data-element + per-row data-element-item), or the declared library
+   (e.g. echarts) fed via binding. Keep mock_data in a separate fixture file. Never inline the
+   values as hard-coded sibling nodes; never draw data shapes with bespoke SVG/CSS.
+6. Implement every interaction entry and all its declared states; wire behaviors to stub handlers
    or project data flows per the plan's acceptance note.
 Return: files changed, data-element ids rendered, and any token/blueprint gaps you hit.
 ```
@@ -96,4 +105,9 @@ mismatch with the failure evidence), say so and stop — the blueprint owns that
 - Keep one implementation-ledger entry per dispatch round: which subagents ran, what changed,
   gate numbers before/after.
 - Cost control: regions with track `island`/`approximation` need no decompose subagent beyond
-  bounds + one component entry — do those yourself in the skeleton round.
+  bounds + one component entry (plus, for approximation, one data entry with the mock series and
+  library) — do those yourself in the skeleton round. Run `classify_slices.py` before authoring
+  the skeleton so tracks come from content classification, not from per-region agents.
+- Cost control: subagents return one short status line; artifacts stay on disk. The orchestrator
+  reads `.md`/brief views and per-region files, never re-dumps the big `*.json` reports, and
+  enforces the iteration budget (stop after two rounds of <0.5pp improvement) on re-dispatch.

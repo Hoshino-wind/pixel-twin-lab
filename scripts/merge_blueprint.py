@@ -24,6 +24,7 @@ RELATION_FIELDS = ("scope", "type", "items", "gap_px", "columns", "align", "conf
 COMPONENT_FIELDS = ("id", "region", "type", "bounds", "content", "maps_to", "elements", "notes")
 ELEMENT_FIELDS = ("id", "type", "bounds", "content", "token_refs")
 INTERACTION_FIELDS = ("target", "trigger", "behavior", "states", "source", "notes")
+DATA_FIELDS = ("component_id", "shape", "fields", "mock_data", "binding", "source", "library", "notes")
 COLOR_FIELDS = ("name", "value", "usage", "sampled_at", "maps_to")
 TYPOGRAPHY_FIELDS = ("name", "size_px", "weight", "line_height_px", "measured_from", "maps_to")
 SPACING_FIELDS = ("name", "px", "maps_to")
@@ -190,6 +191,33 @@ def merge_interactions(fragments: list[dict[str, Any]], component_ids: set[str],
             if target not in component_ids:
                 log.error(path, f"interaction target {target!r} is not a merged component id")
             merged.append(pick(interaction, INTERACTION_FIELDS))
+    return merged
+
+
+def merge_data(fragments: list[dict[str, Any]], component_ids: set[str], log: IssueLog) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: dict[str, str] = {}
+    for fragment in fragments:
+        raw = fragment["data"].get("data")
+        if raw is None:
+            continue
+        if not isinstance(raw, list):
+            log.error(fragment["path"], "fragment 'data' must be an array")
+            continue
+        for index, entry in enumerate(raw):
+            path = f"{fragment['path']}:data[{index}]"
+            if not isinstance(entry, dict):
+                log.error(path, "data entry must be an object")
+                continue
+            component_id = entry.get("component_id")
+            if component_id not in component_ids:
+                log.error(path, f"data entry component_id {component_id!r} is not a merged component id")
+                continue
+            if component_id in seen:
+                log.error(path, f"component '{component_id}' already has a data entry from {seen[component_id]}")
+                continue
+            seen[component_id] = path
+            merged.append(pick(entry, DATA_FIELDS))
     return merged
 
 
@@ -461,7 +489,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"Result: `{'PASS' if summary['pass'] else 'FAIL'}`",
         "",
         f"- fragments: {summary['fragments']} ({', '.join(f'`{name}`' for name in report['fragment_regions']) or 'none'})",
-        f"- components: {summary['components']} | interactions: {summary['interactions']}",
+        f"- components: {summary['components']} | interactions: {summary['interactions']} | data entries: {summary['data_entries']}",
         f"- tokens: colors {summary['tokens']['colors']}, typography {summary['tokens']['typography']}, "
         f"spacing {summary['tokens']['spacing']}",
         f"- token proposals processed: {summary['token_merges']} | relations kept: {report['relations']}",
@@ -512,6 +540,7 @@ def main() -> None:
     components = merge_components(fragments, region_names, log)
     component_ids = {component["id"] for component in components}
     interactions = merge_interactions(fragments, component_ids, log)
+    data_entries = merge_data(fragments, component_ids, log)
 
     tokens = base_tokens(out_dir, log)
     token_merges = merge_token_proposals(fragments, tokens, args.color_merge_distance, log)
@@ -532,11 +561,14 @@ def main() -> None:
         "interactions": interactions,
         "implementation": implementation,
     }
+    if data_entries:
+        blueprint["data"] = data_entries
 
     summary = {
         "fragments": len(fragments),
         "components": len(components),
         "interactions": len(interactions),
+        "data_entries": len(data_entries),
         "tokens": {group: len(tokens[group]) for group in ("colors", "typography", "spacing")},
         "token_merges": len(token_merges),
         "errors": log.errors,

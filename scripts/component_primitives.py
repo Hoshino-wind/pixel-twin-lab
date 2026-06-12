@@ -130,11 +130,27 @@ def dom_summary(out_dir: Path) -> dict[str, Any]:
     }
 
 
-def infer_track(name: str, ledger_region: dict[str, Any] | None) -> str:
+def load_routing(out_dir: Path) -> dict[str, dict[str, Any]]:
+    routing: dict[str, dict[str, Any]] = {}
+    manifest = load_json(out_dir / "routing-manifest.json", None)
+    if isinstance(manifest, dict):
+        for region in manifest.get("regions") or []:
+            if isinstance(region, dict) and region.get("name") and region.get("track"):
+                routing[str(region["name"])] = region
+    return routing
+
+
+def infer_track(name: str, ledger_region: dict[str, Any] | None, routing: dict[str, dict[str, Any]] | None = None) -> str:
+    routed = (routing or {}).get(name)
+    if routed:
+        return str(routed["track"])
     if ledger_region and ledger_region.get("track"):
         return str(ledger_region["track"])
     lowered = name.lower()
-    if any(key in lowered for key in ("chart", "trend", "funnel", "heatmap", "map", "photo", "avatar")):
+    # Fallback name heuristics only — classify_slices.py routing is the authoritative source.
+    if any(key in lowered for key in ("chart", "trend", "funnel", "heatmap", "map")):
+        return "approximation"
+    if any(key in lowered for key in ("photo", "avatar", "image")):
         return "island"
     if lowered.startswith(("slice-", "gap-")):
         return "diagnostic"
@@ -152,27 +168,33 @@ def has_asset(ledger_region: dict[str, Any] | None) -> bool:
 def primitive_hints(name: str, track: str) -> list[str]:
     lowered = name.lower()
     hints: list[str] = []
+    if track == "approximation":
+        # Never hand-draw data shapes: approximation regions are a library + mock data, full stop.
+        return [
+            "third-party library container (chart: echarts; map: leaflet; 3D: three)",
+            "mock data from the blueprint data layer fed via the library option/props",
+            "library restyle to tokens (colors, fonts, grid)",
+            "container shell geometry (position, size, radius, border) as strict DOM",
+        ]
     if track == "island":
         hints.extend(["component shell", "measured island bounds", "asset clipping/masking"])
     if any(k in lowered for k in ("header", "topbar", "app-bar")):
-        hints.extend(["app bar container", "heading/text nodes", "button controls", "vector icons", "badge/avatar primitives"])
+        hints.extend(["app bar container", "heading/text nodes", "button controls", "icon assets (crop or transparent regen)", "badge/avatar primitives"])
     if any(k in lowered for k in ("sidebar", "nav", "bottom-nav")):
-        hints.extend(["navigation item rows", "section labels", "active state", "icon primitives", "usage/progress indicators"])
+        hints.extend(["navigation item rows from a data array", "section labels", "active state", "icon assets", "usage/progress indicators"])
     if any(k in lowered for k in ("kpi", "card", "weather")):
-        hints.extend(["card primitives", "metric labels", "numeric typography", "status badges", "SVG sparkline marks"])
+        hints.extend(["card primitives", "metric labels", "numeric typography", "status badges"])
     if any(k in lowered for k in ("right", "insight", "automation", "alert")):
         hints.extend(["panel cards", "text hierarchy", "callout blocks", "toggle/status controls", "small badge primitives"])
     if any(k in lowered for k in ("stream", "timeline", "list")):
-        hints.extend(["repeated row component", "time/status labels", "divider lines", "row icon primitives"])
+        hints.extend(["one row template + mock data array (collection contract)", "time/status labels", "divider lines", "row icon assets"])
     if any(k in lowered for k in ("table", "pipeline")):
-        hints.extend(["semantic table/grid", "column headers", "cell typography", "status tags", "row separators"])
-    if any(k in lowered for k in ("trend", "chart", "funnel", "heatmap")):
-        hints.extend(["SVG axes", "grid lines", "chart marks", "legend primitives"])
+        hints.extend(["semantic table from column defs + row records (collection contract)", "column headers", "cell typography", "status tags", "row separators"])
     if any(k in lowered for k in ("tabs", "filter", "segment")):
         hints.extend(["segmented control", "active indicator", "button text", "control spacing"])
     if any(k in lowered for k in ("assistant", "search", "input")):
-        hints.extend(["input/control container", "placeholder text", "command buttons", "icon primitives"])
-    if any(k in lowered for k in ("recommendation", "trip", "map", "photo")):
+        hints.extend(["input/control container", "placeholder text", "command buttons", "icon assets"])
+    if any(k in lowered for k in ("recommendation", "trip", "photo")):
         hints.extend(["content card shell", "thumbnail/media island if approved", "title/meta text", "action controls"])
     if not hints:
         hints.extend(["layout container", "text nodes", "spacing tokens", "border/radius/shadow tokens"])
@@ -185,10 +207,12 @@ def primitive_hints(name: str, track: str) -> list[str]:
 
 
 def region_role(track: str, asset: bool, strategy: str, allowed_tracks: set[str]) -> str:
-    if asset and (track not in allowed_tracks or strategy == "placeholder"):
+    if asset and ((track not in allowed_tracks and track != "approximation") or strategy == "placeholder"):
         return "asset-disallowed"
     if asset and track in allowed_tracks:
         return "approved-island"
+    if track == "approximation":
+        return "approximation-library"
     if track in allowed_tracks:
         return "island-missing-asset"
     if track == "diagnostic":
@@ -199,6 +223,11 @@ def region_role(track: str, asset: bool, strategy: str, allowed_tracks: set[str]
 def next_actions(role: str, name: str, strict: float, tolerant: float) -> list[str]:
     if role == "approved-island":
         return ["Keep as measured island; verify shell alignment and clipping only."]
+    if role == "approximation-library":
+        return [
+            "Render with the routed third-party library fed the blueprint's mock data; restyle to tokens.",
+            "Evaluate per-region (tolerant mismatch + compare_structure.py), not whole-page strict.",
+        ]
     if role == "asset-disallowed":
         return ["Remove generated asset from component track.", "Rebuild visible content as DOM/SVG primitives."]
     if role == "island-missing-asset":
@@ -231,6 +260,7 @@ def build_report(out_dir: Path, recovery_dir: str, allowed_tracks: set[str], tar
 
     named_regions = regions_by_name(out_dir)
     ledger = ledger_by_name(out_dir, recovery_dir)
+    routing = load_routing(out_dir)
     metrics = metric_regions(rebuilt)
     all_names = sorted(set(named_regions) | set(ledger) | set(metrics))
     dom = dom_summary(out_dir)
@@ -241,7 +271,7 @@ def build_report(out_dir: Path, recovery_dir: str, allowed_tracks: set[str], tar
         ledger_region = ledger.get(name)
         region = named_regions.get(name, {})
         bounds = normalize_bounds(region) or normalize_bounds(metric) or normalize_bounds(ledger_region or {})
-        track = infer_track(name, ledger_region)
+        track = infer_track(name, ledger_region, routing)
         asset = has_asset(ledger_region)
         strategy = str((ledger_region or {}).get("asset_strategy") or "none")
         strict = opt_float(metric.get("mismatch_pct"))
@@ -270,10 +300,11 @@ def build_report(out_dir: Path, recovery_dir: str, allowed_tracks: set[str], tar
         role_rank = {
             "asset-disallowed": 0,
             "component-required": 1,
-            "island-missing-asset": 2,
-            "approved-island": 3,
-            "diagnostic-slice": 4,
-        }.get(str(item["role"]), 5)
+            "approximation-library": 2,
+            "island-missing-asset": 3,
+            "approved-island": 4,
+            "diagnostic-slice": 5,
+        }.get(str(item["role"]), 6)
         # Unmeasured regions sort first within a role: no data means most in need of attention.
         measured_rank = 1 if item.get("measured") else 0
         return (role_rank, measured_rank, -as_float(item.get("tolerant_mismatch_pct")), -as_float(item.get("strict_mismatch_pct")))

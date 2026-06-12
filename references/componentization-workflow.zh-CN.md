@@ -74,16 +74,17 @@
    把这些区域名同步写进 lab 截图旁的 `regions.json`,让 `pixel_diff.py` 用同一套词汇输出组件级指标。
    对于浅色、低对比或复杂仪表盘,自动切片漏检组件时,再用同一套区域名手写一份 `slice-manifest.json`,带 `--manifest` 重跑 lab 准备——手工切片加自动 gap 补齐能保证 exact 模式完整,且每个命名区域都有独立 diff 指标。
 5. 分片构建：
+   - 先跑 `classify_slices.py`(init → 标注 sheet → apply):动工前按内容类型路由轨道——图表/地图/3D 给第三方库,图标/照片给 island 资产,纯 DOM 进组件循环。
    - 先做页面 shell 和布局几何——先调几何再调颜色;布局漂 2px,所有颜色对比都会满屏红。
    - 再加字体和 token;所有颜色从参考图位图采样,优先复用项目已有 token,再考虑新建。
-   - 再做重复组件。
-   - 地图、照片、头像、复杂图表和 Logo/装饰文字保留为位图切片岛,不要硬组件化;组件层只负责它们的容器、布局和交互。
-   - 只有当源图内容无法用代码表达时，才把图像资产加入最终项目。
-   - 静态几何稳定后，再加交互状态。
+   - 重复组件从蓝图数据层的 mock 数组渲染(每个 collection 一个模板,mock 数据放 fixture 文件)。优先复用项目自己的表格/列表/卡片组件;项目没有时,按蓝图组件 `type` 给出的原型(table/list/kpi 卡/tabs/badge/面板壳)**用项目自己的栈实时写一个可复用、props 驱动的通用组件**,不写把内容写死的一次性 markup。
+   - 图表用路由的库(默认 echarts)喂 mock 系列,地图用地图库,绝不手画数据标记。照片、头像和 Logo/装饰文字保留为位图切片岛;图标切图或重生成透明背景图;组件层只负责它们的容器、布局和交互。
+   - 只有当源图内容无法用代码表达时,才把图像资产加入最终项目。
+   - 静态几何稳定后,再加交互状态。
 6. 用与参考图相同的 viewport 捕获最终 App 路由。
 7. 对 App 截图运行 `pixel_diff.py`，或把 App 截图复制到 lab 作为 `rebuilt-capture.png`。第一轮校准前先验证零基线:lab 的 `reference` 截图与参考图 diff 必须是 `0%`——基线不为零是环境问题(viewport、色彩配置、字体、端口被占),不是 CSS 问题。分区指标(切片 + `regions.json`)会告诉你下一个该修哪个组件。
 8. 运行 `plan_calibration.py` 生成下一轮修复计划:它把每个未达标区域分类为未实现、布局偏移、token 色差、切片岛候选或重建,按 pass 排序(skeleton → layout → visual tokens → asset islands → region rebuild loop)。按 pass 顺序执行;未实现区域用 `skeleton.suggested.css` 起骨架,出现岛区域时把 `slice-manifest.suggested.json` 合并进 slice manifest 并重跑 lab 准备。
-9. 组件化门禁失败时,运行 `component_primitives.py --out-dir <lab> --target-match 98`。用 `component-primitives.md` 作为下一轮重建工单:它会区分 approved island 与 component-required 区域,并点名必须重建的 DOM/SVG primitive,包括文字节点、导航行、卡片、控件、表格、列表、矢量图标、图表坐标轴和图表标记。
+9. 组件化门禁失败时,运行 `component_primitives.py --out-dir <lab> --target-match 98`。用 `component-primitives.md` 作为下一轮重建工单:它会区分 approved island、approximation-library 与 component-required 区域,并点名必须重建的 DOM primitive——文字节点、导航行、卡片、控件、collection(从 mock 数组渲染的表格/列表)。图表坐标轴/标记永远不会出现在工单里:图表是 approximation 轨道的库,不是 primitive。
 10. 修改最差的 component-required 区域前,运行 `measure_primitives.py --out-dir <lab> --regions <names>`。用 `measured-primitives.md` 和 overlay PNG 放置 primitive box;凭感觉补文字/图标/控件往往看起来更完整,但会增加像素误差。
 11. 每个组件变体完成后,运行 `compare_region_metrics.py --baseline <clean-lab> --candidate <edited-lab>`。只有分区指标向正确方向变化时才保留 DOM text、SVG primitive 或其它策略;截图看起来更完整并不足够。
 12. 每轮迭代在 `implementation-ledger.md` 中记录：
@@ -112,7 +113,7 @@
 - 交付时报告两套指标:`component faithful`(纯代码重建)和 `bitmap exact`(应用切片岛后),并列出哪些区域保留为切片岛。
 - 组件化门禁失败时附上 `component-primitives.md`;这是下一轮重建工单,防止 asset-only 修复被误判为组件还原。
 - 声称某个 component-required 区域已重建前,附上 `measured-primitives.md`;它证明这次修改依据参考几何,不是肉眼猜测。
-- 组件重建 pass 需附上 `element-manifest.md`(必须全部标注完)和 `element-verification.md`;像素证明"长得像",元素合同证明"是由什么构成的"。流程:measure_primitives 测几何 → init_element_manifest 起清单 → agent 对照参考裁片标注 type/content/maps_to → DOM 带 data-element id → measure_dom_elements.cjs + verify_elements.py 逐元素校验。验证失败项就是下一轮工单,"N/M 元素已验证"就是进度刻度。
+- 组件重建 pass 需附上 `element-manifest.md`(必须全部标注完)和 `element-verification.md`;像素证明"长得像",元素合同证明"是由什么构成的"。流程:measure_primitives 测几何 → init_element_manifest 起清单 → agent 对照参考裁片标注 type/content/maps_to(表格/列表用一条 `collection` 条目:item_count + first_item_content,删掉逐单元格条目;approximation 图表容器标 `chart-host`)→ DOM 带 data-element id(collection 容器 + 每行 data-element-item)→ measure_dom_elements.cjs + verify_elements.py 逐元素校验。验证失败项就是下一轮工单,"N/M 元素已验证"就是进度刻度。
 - 组件变体需要附上 `region-metric-comparison.md`;它证明该修改对命名区域是改善还是退步。
 - 如果组件实现仍有视觉差异，报告具体 mismatch 和下一步校准动作。
 

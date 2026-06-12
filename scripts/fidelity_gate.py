@@ -520,6 +520,28 @@ def main() -> None:
 
     ledger_path = out_dir / args.recovery_dir / "component-ledger.json"
     ledger = load_json(ledger_path, {})
+    # classify_slices.py routing is an upstream track source: approximation regions routed
+    # there must be evaluated per-region even when no recovery ledger exists yet.
+    routing_manifest = load_json(out_dir / "routing-manifest.json", None)
+    if isinstance(routing_manifest, dict) and isinstance(routing_manifest.get("regions"), list):
+        ledger_names = {
+            str(region.get("name"))
+            for region in (ledger.get("regions") if isinstance(ledger, dict) else None) or []
+            if isinstance(region, dict)
+        }
+        extra = [
+            {**region.get("bounds", {}), "name": region["name"], "track": region["track"],
+             **({"eval": region["eval"]} if region.get("eval") else {})}
+            for region in routing_manifest["regions"]
+            if isinstance(region, dict) and region.get("name") and region.get("track")
+            and str(region["name"]) not in ledger_names
+        ]
+        if extra:
+            if not isinstance(ledger, dict):
+                ledger = {}
+            ledger.setdefault("regions", [])
+            if isinstance(ledger["regions"], list):
+                ledger["regions"].extend(extra)
     asset_evidence = collect_asset_evidence(out_dir, ledger, ledger_path)
     generated_assets = int(asset_evidence["generated_asset_count"])
     placeholder_assets = int(asset_evidence["asset_strategy_counts"].get("placeholder", 0))

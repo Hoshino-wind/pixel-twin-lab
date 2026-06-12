@@ -277,6 +277,10 @@ def main() -> None:
     }
     (out_dir / args.json_name).write_text(json.dumps(report, indent=2), encoding="utf-8")
     (out_dir / args.md_name).write_text(render_markdown(report), encoding="utf-8")
+    # Per-region files: when fixing one region, read primitive-measurements/<region>.json
+    # instead of the full measured-primitives.json (which grows with every region measured).
+    for region in measured:
+        (overlay_dir / f"{region['name']}.json").write_text(json.dumps(region, indent=2), encoding="utf-8")
     print(
         json.dumps(
             {
@@ -284,6 +288,7 @@ def main() -> None:
                 "regions": [{"name": r["name"], "primitive_count": r["primitive_count"]} for r in measured],
                 "json": str(out_dir / args.json_name),
                 "markdown": str(out_dir / args.md_name),
+                "per_region_json": f"{overlay_dir}/<region>.json",
             },
             indent=2,
         )

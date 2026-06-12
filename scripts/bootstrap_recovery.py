@@ -171,8 +171,31 @@ def name_contains(name: str, patterns: tuple[str, ...]) -> bool:
     return any(pattern in lowered for pattern in patterns)
 
 
-def classify_region(region: dict[str, Any], planner: dict[str, Any], table_track: str) -> tuple[str, str]:
+def load_routing(out_dir: Path) -> dict[str, dict[str, Any]]:
+    """Authoritative track routing from classify_slices.py, keyed by region name."""
+    manifest = load_json(out_dir / "routing-manifest.json", None)
+    routing: dict[str, dict[str, Any]] = {}
+    if isinstance(manifest, dict):
+        for region in manifest.get("regions") or []:
+            if isinstance(region, dict) and region.get("name") and region.get("track"):
+                routing[str(region["name"])] = region
+    return routing
+
+
+def classify_region(
+    region: dict[str, Any],
+    planner: dict[str, Any],
+    table_track: str,
+    routing: dict[str, dict[str, Any]] | None = None,
+) -> tuple[str, str]:
     name = str(region["name"])
+    routed = (routing or {}).get(name)
+    if routed:
+        detail = routed.get("content_type", "")
+        library = routed.get("library")
+        reason = f"Routed by slice classification (content_type '{detail}'"
+        reason += f", library {library})." if library else ")."
+        return str(routed["track"]), reason
     planner_pass = planner.get("planner_pass")
     action = str(planner.get("action") or "")
     if planner_pass == "slice-island":
@@ -594,6 +617,7 @@ def main() -> None:
     triage = load_json(out_dir / "triage-report.json", {})
     metrics = metric_regions(summary if isinstance(summary, list) else [])
     planner = planner_classes(plan if isinstance(plan, dict) else {})
+    routing = load_routing(out_dir)
 
     enriched: list[dict[str, Any]] = []
     for region in regions:
@@ -601,7 +625,7 @@ def main() -> None:
         if str(region["name"]).startswith("gap-"):
             track, reason = "coverage", "Generated gap filler so the high-fidelity scaffold can cover the full canvas."
         else:
-            track, reason = classify_region(region, classes, args.table_track)
+            track, reason = classify_region(region, classes, args.table_track, routing)
         enriched_region = dict(region)
         enriched_region["track"] = track
         enriched_region["reason"] = reason

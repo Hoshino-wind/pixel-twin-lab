@@ -3,6 +3,13 @@
 
 This is the anti-collage check at element granularity: a bitmap patch cannot contain the
 individually addressable [data-element] nodes the manifest demands.
+
+Repeated content (tables, lists, queues, feeds) is verified through ONE `collection` entry:
+the container carries data-element, every row/item carries data-element-item, and the entry
+declares item_count (or min_items) plus first_item_content. This replaces per-cell entries —
+a collection that renders from a data array passes; hand-written sibling blocks still pass
+geometry but are caught in review, while a bitmap patch fails outright. Approximation-track
+chart containers use type `chart-host`: the node must contain the library's canvas/svg output.
 """
 
 from __future__ import annotations
@@ -50,6 +57,10 @@ def type_compatible(element_type: str, dom: dict[str, Any]) -> tuple[bool, str]:
         if tag in CONTROL_TAGS or role in CONTROL_ROLES:
             return True, ""
         return False, f"type 'control' but tag `{tag}`/role `{role or 'none'}` is not interactive"
+    if element_type == "chart-host":
+        if dom.get("has_canvas") or dom.get("has_svg"):
+            return True, ""
+        return False, "type 'chart-host' but the DOM node contains no canvas/svg (the chart library has not rendered into it)"
     return True, ""
 
 
@@ -98,6 +109,29 @@ def verify_element(element: dict[str, Any], dom_matches: list[dict[str, Any]], a
         actual = normalize_text(str(dom.get("text") or ""))
         if expected and expected not in actual and actual not in expected:
             result["problems"].append(f"text mismatch: manifest '{element['content']}' vs DOM '{dom.get('text')}'")
+    if element_type == "collection":
+        actual_items = int(dom.get("item_count") or 0)
+        result["item_count"] = actual_items
+        if actual_items == 0:
+            result["problems"].append(
+                "type 'collection' but no descendant [data-element-item] nodes; "
+                "collections must render rows/items from a data array through one template"
+            )
+        else:
+            expected_count = element.get("item_count")
+            min_items = element.get("min_items")
+            if expected_count is not None and actual_items != int(expected_count):
+                result["problems"].append(f"item count {actual_items} != expected {expected_count}")
+            elif min_items is not None and actual_items < int(min_items):
+                result["problems"].append(f"item count {actual_items} < min_items {min_items}")
+            first_expected = element.get("first_item_content")
+            if first_expected:
+                expected = normalize_text(str(first_expected))
+                actual = normalize_text(str(dom.get("first_item_text") or ""))
+                if expected and expected not in actual and actual not in expected:
+                    result["problems"].append(
+                        f"first item mismatch: manifest '{first_expected}' vs DOM '{dom.get('first_item_text')}'"
+                    )
     if element_type:
         compatible, reason = type_compatible(element_type, dom)
         if not compatible:

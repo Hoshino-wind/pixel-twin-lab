@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "pixel-twin-lab/ui-blueprint.schema.json",
   "title": "UI Blueprint",
-  "description": "Machine-readable five-layer decomposition of a UI reference image: visual layout, component semantics, design tokens, interaction behavior, and project implementation. The blueprint is authored by the model but every layer must be reconcilable against measurements (validate_blueprint.py). Code generation reads this file, never the raw image.",
+  "description": "Machine-readable six-layer decomposition of a UI reference image: visual layout, component semantics, design tokens, data content, interaction behavior, and project implementation. The blueprint is authored by the model but every layer must be reconcilable against measurements (validate_blueprint.py). Code generation reads this file, never the raw image.",
   "type": "object",
   "required": ["version", "source", "layout", "components", "tokens", "interactions", "implementation"],
   "additionalProperties": false,
@@ -165,8 +165,34 @@
       }
     },
 
+    "data": {
+      "description": "Layer 4 - data content: every data-driven component (table, list, chart, kpi group, timeline) declares its dataset here as mock data. Generated code renders FROM this data — a row/item template mapped over the array, or a chart library option fed the series — never as inline hard-coded sibling nodes, and never by drawing the data's appearance with bespoke SVG/CSS shapes. For lists/tables mock_data is the verbatim transcription of the reference content; for charts it is an approximate reading (series count, point count, value range, trend) rendered through the declared library.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["component_id", "shape", "mock_data", "binding", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "component_id": { "type": "string", "description": "Component this dataset feeds" },
+          "shape": { "enum": ["rows", "items", "series", "keyvalue", "tree", "geo"] },
+          "fields": { "type": "array", "items": { "type": "string" }, "description": "Field names of each rows/items entry, e.g. [\"service\", \"region\", \"status\", \"latency\"]" },
+          "mock_data": {
+            "type": ["array", "object"],
+            "description": "The dataset itself. rows/items/series: non-empty array; keyvalue/tree/geo: object. Lives in the blueprint so codegen packets can carry it without re-reading the image."
+          },
+          "binding": { "type": "string", "description": "Prop or option path the data binds to, e.g. 'rows', 'items', 'option.series[0].data'" },
+          "source": {
+            "enum": ["extracted", "approximated"],
+            "description": "extracted: transcribed verbatim from the reference (lists/tables/labels); approximated: read approximately from the reference (chart values, map markers) — exact values are not the fidelity target, structure is"
+          },
+          "library": { "type": "string", "description": "Third-party renderer for approximation-track data, e.g. 'echarts', 'leaflet', 'maplibre', 'three'" },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+
     "interactions": {
-      "description": "Layer 4 - interaction behavior. Never extracted from the image: derived from project conventions > project tokens > element-type defaults, and the source must be declared. Includes page-level behavior (tab switches, filters changing data, dialogs, loading/empty states).",
+      "description": "Layer 5 - interaction behavior. Never extracted from the image: derived from project conventions > project tokens > element-type defaults, and the source must be declared. Includes page-level behavior (tab switches, filters changing data, dialogs, loading/empty states).",
       "type": "array",
       "items": {
         "type": "object",
@@ -190,7 +216,7 @@
     },
 
     "implementation": {
-      "description": "Layer 5 - project implementation plan: generate with the target project's existing stack, never by pasting lab HTML.",
+      "description": "Layer 6 - project implementation plan: generate with the target project's existing stack, never by pasting lab HTML.",
       "type": "object",
       "required": ["framework", "styling", "plan"],
       "additionalProperties": false,

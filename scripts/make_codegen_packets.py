@@ -32,6 +32,17 @@ component using **only** `packet.json` in this directory.
 6. Use `packet.json` -> `relations` and `component.bounds` (within `source_dims`) to derive
    layout; prefer flow layout per the relation type, falling back to absolute positioning
    only where a relation says `absolute-fallback`.
+7. When the packet has `data` entries, render **from the data**: map a single row/item
+   template over `mock_data`, or feed it to the declared third-party library (`library`,
+   e.g. echarts) via `binding`. Do not inline the values as hard-coded sibling nodes, and
+   do not draw the data's appearance with bespoke SVG/CSS shapes. Keep `mock_data` in a
+   separate fixture file (e.g. `<component>.mock.ts`/`.json`) so it is swappable for real
+   data sources later.
+8. When the plan action is `create`, the component's `type` names its archetype (table,
+   list, kpi-card, tabs, badge, panel, chart container). Write it as a reusable,
+   props-driven generic component in the project's stack — content arrives only through
+   props/data, styles only through tokens. Do not bake this region's content into the
+   component body; the fixture file is what makes this instance render this region.
 """
 
 
@@ -107,6 +118,7 @@ def main() -> None:
     relations = layout.get("relations") if isinstance(layout.get("relations"), list) else []
     tokens = blueprint.get("tokens") if isinstance(blueprint.get("tokens"), dict) else {}
     interactions = blueprint.get("interactions") if isinstance(blueprint.get("interactions"), list) else []
+    data_entries = blueprint.get("data") if isinstance(blueprint.get("data"), list) else []
     implementation = blueprint.get("implementation") if isinstance(blueprint.get("implementation"), dict) else {}
     source = blueprint.get("source") if isinstance(blueprint.get("source"), dict) else {}
 
@@ -135,6 +147,9 @@ def main() -> None:
             "tokens": tokens,
             "interactions": [
                 entry for entry in interactions if isinstance(entry, dict) and entry.get("target") == component_id
+            ],
+            "data": [
+                entry for entry in data_entries if isinstance(entry, dict) and entry.get("component_id") == component_id
             ],
             "plan": plan_for(component_id, implementation),
             "project": project,

@@ -27,6 +27,15 @@ ELEMENT_TYPES = [
     "chart-mark",
     "container",
     "decoration",
+    # Data-driven container of repeated rows/items (tables, lists, queues, feeds).
+    # Replace the per-cell entries inside it with ONE collection entry: keep this container,
+    # delete its row-level children from the manifest, and set item_count (or min_items)
+    # plus first_item_content. The DOM contract is data-element on the container and
+    # data-element-item on every row.
+    "collection",
+    # Approximation-track chart container rendered by a third-party library (echarts/...).
+    # Verified by the presence of the library's canvas/svg output, not by chart-mark geometry.
+    "chart-host",
 ]
 
 

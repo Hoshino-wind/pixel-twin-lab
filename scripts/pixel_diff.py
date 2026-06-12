@@ -184,6 +184,14 @@ def main() -> None:
         default="auto",
         help="Per-region metrics: 'auto' uses lab-config.json slices plus regions.json named regions in --out-dir, 'none' disables, or pass a JSON file path",
     )
+    parser.add_argument(
+        "--print",
+        dest="print_mode",
+        choices=["brief", "full"],
+        default="brief",
+        help="Stdout verbosity: 'brief' prints overall metrics plus the worst regions per capture "
+        "(full data is always in pixel-diff-summary.json); 'full' dumps the whole summary",
+    )
     args = parser.parse_args()
 
     reference_path = Path(args.reference).expanduser().resolve()
@@ -202,7 +210,33 @@ def main() -> None:
 
     summary_path = out_dir / "pixel-diff-summary.json"
     summary_path.write_text(json.dumps(summaries, indent=2), encoding="utf-8")
-    print(json.dumps(summaries, indent=2))
+    if args.print_mode == "full":
+        print(json.dumps(summaries, indent=2))
+        return
+    brief = []
+    for summary in summaries:
+        entry = {
+            key: summary[key]
+            for key in ("file", "status", "mismatch_pct", "mismatch_pct_tolerant", "mae", "max_delta")
+            if key in summary
+        }
+        regions_list = summary.get("regions")
+        if isinstance(regions_list, list) and regions_list:
+            entry["region_count"] = len(regions_list)
+            entry["worst_regions"] = [
+                {
+                    "name": region.get("name"),
+                    "mismatch_pct": region.get("mismatch_pct"),
+                    **(
+                        {"mismatch_pct_tolerant": region.get("mismatch_pct_tolerant")}
+                        if "mismatch_pct_tolerant" in region
+                        else {}
+                    ),
+                }
+                for region in regions_list[:5]
+            ]
+        brief.append(entry)
+    print(json.dumps({"captures": brief, "summary": str(summary_path)}, indent=2))
 
 
 if __name__ == "__main__":

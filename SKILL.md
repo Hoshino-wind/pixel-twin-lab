@@ -1,6 +1,6 @@
 ---
 name: pixel-twin-lab
-description: Decompose a UI image (screenshot, Image Gen result, or mockup) into a five-layer engineering blueprint — visual layout, component semantics, design tokens, interaction behavior, project implementation — then generate a high-fidelity, interactive page in a target project and verify it with screenshot backtesting. Use when the user wants to turn a UI image into real project components, recreate an image-based UI faithfully, compare an implementation against a reference image, produce pixel-diff screenshots, quantify mismatch, or decide whether a design can be made one-pixel-perfect versus component-faithful.
+description: Decompose a UI image (screenshot, Image Gen result, or mockup) into a six-layer engineering blueprint — visual layout, component semantics, design tokens, data content (mock data), interaction behavior, project implementation — route each slice by content type (charts to ECharts, icons/images to cropped assets, maps/3D to third-party libraries), then generate a high-fidelity, interactive page in a target project and verify it with screenshot backtesting. Use when the user wants to turn a UI image into real project components, recreate an image-based UI faithfully, compare an implementation against a reference image, produce pixel-diff screenshots, quantify mismatch, or decide whether a design can be made one-pixel-perfect versus component-faithful.
 ---
 
 # Pixel Twin Lab
@@ -32,12 +32,23 @@ This is the main flow for "turn this UI image into a page in my project". The la
 
 **Phase 1 — Measure.** `prepare_lab.py` (instrument setup) → capture `reference` mode and prove the zero baseline → `measure_primitives.py` for every region → `extract_tokens.py` (color clusters, type sizes, spacing scale) → `infer_layout.py` (flex/grid relations with confidence). Bounds, colors, and sizes used anywhere downstream must come from these outputs, never from eyeballing.
 
-**Phase 2 — Blueprint.** Author `ui-blueprint.json` (schema: `schemas/ui-blueprint.schema.json`) by reading the reference crops together with the Phase 1 measurements. Five layers, all required:
-   1. *Visual layout* — regions with measured bounds, roles, tracks, and layout relations (adopt `infer_layout.py` output; keep `absolute-fallback` entries explicit).
+**Phase 1.5 — Classify & route.** Run `classify_slices.py --mode init`, look at `classification-sheet.png` **once** (all crops on one labeled sheet), set every slice's `content_type` in `slice-classification.json`, then run `--mode apply`. The resulting `routing-manifest.json` decides each region's track *before* any blueprint or code work:
+
+   - `plain-dom` → component track (DOM/CSS rebuild, the strict pixel loop)
+   - `icon` / `image` → island asset (crop, or regenerate with a transparent background when the icon sits on a non-uniform fill)
+   - `chart` → approximation track: third-party chart library (default **echarts**) fed mock data
+   - `map` → approximation track: third-party map library (default leaflet)
+   - `scene-3d` → approximation track: third-party 3D library (default three), `eval: structural-only`
+
+   Visualization content never enters the DOM rebuild loop, and nothing gets hand-built first only to be reclassified by triage later. `bootstrap_recovery.py`, `component_primitives.py`, and `fidelity_gate.py` all read this manifest as the authoritative track source.
+
+**Phase 2 — Blueprint.** Author `ui-blueprint.json` (schema: `schemas/ui-blueprint.schema.json`) by reading the reference crops together with the Phase 1 measurements. Six layers, all required:
+   1. *Visual layout* — regions with measured bounds, roles, tracks (adopt the Phase 1.5 routing), and layout relations (adopt `infer_layout.py` output; keep `absolute-fallback` entries explicit).
    2. *Component semantics* — what each thing IS (button, input, tabs, table-row, badge, chart-container...), its extracted text content, and `maps_to` (reuse a project component, extend one, or name a new one).
    3. *Design tokens* — curate `visual-tokens.json` into the blueprint; map to existing project tokens where they exist. Never write CSS values that are not in this layer.
-   4. *Interaction behavior* — which controls click, which tabs switch, which filters change data, dialogs, hover/active/loading/empty states. Derived from project conventions > project tokens > element-type defaults; never invented outside the project's system, never "extracted" from the image. Declare the `source` of every entry.
-   5. *Project implementation* — per-component plan: reuse/extend/create, target path, generation order, acceptance criteria.
+   4. *Data content* — every data-driven component (table, list, chart, kpi group, timeline) declares `shape`, `fields`, `mock_data`, `binding`, and `source`. For lists/tables, `mock_data` is the verbatim transcription of the visible rows as structured records (`source: extracted`) — transcribe into the data layer, not into dozens of separate elements. For charts, read the data approximately (series count, point count, value range, trend; `source: approximated`) and declare the rendering `library`. Code renders FROM this data; hard-coded sibling nodes and hand-drawn data shapes are blueprint defects.
+   5. *Interaction behavior* — which controls click, which tabs switch, which filters change data, dialogs, hover/active/loading/empty states. Derived from project conventions > project tokens > element-type defaults; never invented outside the project's system, never "extracted" from the image. Declare the `source` of every entry.
+   6. *Project implementation* — per-component plan: reuse/extend/create, target path, generation order, acceptance criteria.
 
    Then run `validate_blueprint.py`. It schema-checks the blueprint and reconciles it against measurements (bounds vs measured boxes, colors vs reference sampling, references between layers). **Hard gate: no project code is written while validation fails.**
 
@@ -46,16 +57,20 @@ This is the main flow for "turn this UI image into a page in my project". The la
 **Phase 4 — Generate.** Write project-native components in the target project, in plan order. Rules:
    - Code is generated **from the blueprint, not from the image**. If something looks wrong, fix the blueprint first, revalidate, then regenerate — do not eyeball-patch the code against the picture.
    - Follow the project's framework/styling/UI library (Phase 0 profile). Never paste lab HTML into the project.
-   - Every blueprint component renders DOM with `data-element` ids matching the blueprint's element ids.
-   - Charts/maps/3D go through the approximation track with the project's (or an approved) third-party library; photos/avatars stay region-scoped islands.
+   - **Data-driven components render from the blueprint's data layer**: one row/item template mapped over `mock_data` (the collection contract), or the data fed to the declared library via `binding`. Keep `mock_data` in a separate fixture file so it is swappable for real data sources. Inlining the values as hard-coded sibling nodes is a generation bug.
+   - **Reuse before writing, write generic when writing**: map `maps_to` to the project's own table/list/card components first. When the project has no equivalent, the blueprint component `type` is the archetype (table, list, kpi-card, tabs, badge, panel shell, chart container) — write that component live, in the project's framework and style system, shaped as a reusable generic component (props for column defs / items / label-value, content arriving only through props) rather than one-off markup with the content baked in. The component is written fresh per project; only its contract (data-driven props, token-driven styles, `data-element` passthrough) is fixed by this skill.
+   - Charts/maps/3D go through the approximation track with a third-party library (default echarts / leaflet / three, or the project's existing one) **configured with mock data and restyled with tokens — never drawn**. Photos and icons stay region-scoped island assets (crop, or transparent-background regeneration); hand-draw an SVG icon only when it is a trivial geometric glyph (chevron, plus, dot).
+   - Every blueprint component renders DOM with `data-element` ids matching the blueprint's element ids; collections render `data-element` on the container and `data-element-item` on every row.
 
-**Phase 5 — Backtest.** Capture the real app route at the reference viewport → `pixel_diff.py` → `verify_elements.py` (against the blueprint's element ids) → `fidelity_gate.py`. Map every failure back to a blueprint entry or a generation bug; iterate Phases 4↔5 (or 2 when the blueprint itself was wrong) until the gates pass or the residual gap is explicitly reported. Use "N/M elements verified" as the progress meter.
+**Phase 5 — Backtest.** Capture the real app route at the reference viewport → `pixel_diff.py` → `verify_elements.py` (against the blueprint's element ids) → `fidelity_gate.py`. Map every failure back to a blueprint entry or a generation bug; iterate Phases 4↔5 (or 2 when the blueprint itself was wrong) until the gates pass or the residual gap is explicitly reported. Use "N/M elements verified" as the progress meter. **Iteration budget:** track the strict and tolerant match per round; if two consecutive rounds improve the active metric by less than 0.5 percentage points, stop iterating, report the residual gap and its cause, and let the user decide — an unbounded convergence loop on a non-converging metric is the primary token/cost failure mode of this skill. For text-heavy component regions, use tolerant mismatch (tolerance 8) as the iteration signal and report strict alongside; font antialiasing keeps strict mismatch saturated and makes it a misleading loop signal.
 
 Hard rules across phases:
 
 - `ui-blueprint.json` validated before any project code — no exceptions, including "small obvious" components.
 - In Phase 4 the reference image is off-limits as a coding input; the blueprint is the only visual source of truth.
+- Routing before building: no region is hand-built as DOM before Phase 1.5 classifies it. Charts, maps, and 3D scenes are never drawn by hand (no bespoke SVG axes/marks, no canvas painting) — they are a third-party library plus mock data, on any track.
 - Static lab HTML, exact slices, and recovery scaffolds never ship as project code.
+- Context economy: read the `.md`/brief views and per-region files (`primitive-measurements/<region>.json`), not the full `*.json` reports; scripts print brief summaries by default — do not re-dump them with `--print full` or `cat`. Visual inspection is one classification sheet in Phase 1.5 plus at most one crop sheet per backtest round; per-region numeric metrics, not screenshots, decide what to fix next.
 
 ## Orchestrated Blueprint Workflow (dense UIs)
 
@@ -73,7 +88,9 @@ If the runtime has no subagent capability, execute the same packets serially in 
 ## Decision Rules
 
 - Blueprint before code: for any "build this page in my project" task, follow the Blueprint Workflow phases in order. `ui-blueprint.json` validated by `validate_blueprint.py` is the precondition for writing project code; if you find yourself writing components without a validated blueprint, stop and go back to Phase 2.
-- Code generation reads the blueprint, never the raw image. The image is input to measurement and blueprint authoring only. "Eyeball the screenshot and adjust the CSS" is the failure mode this skill exists to eliminate.
+- Route before rebuilding: if a region's content type is undecided (is this a chart? an icon? a photo?), the answer comes from `classify_slices.py` in Phase 1.5, not from attempting a DOM rebuild and reading the diff. Reclassification through triage is the recovery path, not the default path.
+- Data before markup: tables, lists, queues, feeds, and charts are mock data plus a template/library. If generated code contains more than one hard-coded row of repeated content, or any hand-placed chart mark, the data layer is missing or ignored — fix the blueprint, not the markup.
+- Code generation reads the blueprint, never the raw image. The image is input to measurement, classification, and blueprint authoring only. "Eyeball the screenshot and adjust the CSS" is the failure mode this skill exists to eliminate.
 - Interaction design is derived, not extracted: project conventions first, then project tokens, then element-type defaults — declare the source per entry. A single screenshot carries no interaction information; do not pretend it does.
 - If the user asks for "one pixel exact", preserve the original bitmap or use raster slices; say that true `0%` diff is not the same as a maintainable app UI.
 - If the user asks for a real app, build components in `Rebuilt` mode and use the diff as a calibration loop.
@@ -89,9 +106,9 @@ If the runtime has no subagent capability, execute the same packets serially in 
 - For a high-fidelity pass that may use model-generated or extracted visual elements, run `bootstrap_recovery.py --asset-provider image2 --asset-policy target --target-match 98`. Treat the generated crops as Image2 element-extraction stand-ins: in production, replace them with actual Image2 extracted/generated assets when available. The `target` policy never assigns assets to component-track regions; if the estimate cannot reach the target with island assets alone, the remaining gap is component rebuild work, not a reason to add more crops.
 - If the current model cannot extract or recreate an element, rerun recovery with `--asset-provider placeholder`; it creates same-size placeholder images so layout and component contracts stay stable without pretending the bitmap asset exists.
 - Component-style restoration is the primary standard. A strict no-asset run satisfies `component_only_98` only when `rebuilt-capture.png` reaches at least 98% strict match with zero generated Image2/placeholder assets. For real UIs with photos/maps/avatars/charts, the practical componentized gate is `componentized_islands_98`: strict match >= 98%, generated assets only in approved `island` tracks, and all component tracks rebuilt as DOM/SVG.
-- A sampled-fill or absolute-rectangle skeleton is only a geometry diagnostic. It is not component-style restoration. For `component-only 98`, rebuild regions with semantic DOM/SVG primitives: real text nodes, table/list rows, nav items, controls, vector icons, and chart paths/marks.
+- A sampled-fill or absolute-rectangle skeleton is only a geometry diagnostic. It is not component-style restoration. For `component-only 98`, rebuild regions with semantic DOM primitives: real text nodes, table/list rows rendered from the data layer's mock arrays, nav items, and controls. Icons are island assets (crop or transparent regeneration; hand-drawn SVG only for trivial geometric glyphs), and chart marks are never primitives — charts belong to the approximation track's library.
 - The final deliverable is maintainable in-project components, never a whole-page bitmap. Decompose the screen into region-level components named after the UI (e.g. header, weather card, trip map, timeline rows, bottom nav) and converge each region locally with measured primitives. A full-surface patch — one bitmap covering most or all of the page, however high its match or large its file — is a diagnostic/ceiling artifact only and must never ship as final product code. `fidelity_gate.py` enforces this with asset coverage caps (`--max-asset-coverage`, `--max-single-asset-coverage`); island assets must stay region-scoped (a map tile, a photo), not page-scoped.
-- Pixel diff only governs what the browser layout engine renders deterministically (DOM/CSS/SVG). Content with an independent rendering pipeline — canvas charts, map tiles, WebGL/3D scenes, video, Lottie — belongs on the `approximation` track: build it with the appropriate third-party library, restyle it to the reference, and evaluate it per-region (tolerant mismatch + structural comparison via `compare_structure.py`) instead of whole-page strict. The container geometry (position, size, radius, border) is still DOM and still strict. Declare `eval: structural-only` in the ledger for WebGL/3D regions where even tolerant pixel comparison is meaningless across GPUs.
+- Pixel diff only governs what the browser layout engine renders deterministically (DOM/CSS/SVG). Content with an independent rendering pipeline — canvas charts, map tiles, WebGL/3D scenes, video, Lottie — belongs on the `approximation` track: build it with the routed third-party library (default echarts for charts, leaflet for maps, three for 3D, or the project's existing one) **fed mock data from the blueprint's data layer**, restyle it to the reference with tokens, and evaluate it per-region (tolerant mismatch + structural comparison via `compare_structure.py`) instead of whole-page strict. The container geometry (position, size, radius, border) is still DOM and still strict. Declare `eval: structural-only` in the ledger for WebGL/3D regions where even tolerant pixel comparison is meaningless across GPUs.
 - When `component_only_98` or `componentized_islands_98` fails, run `component_primitives.py` before another rebuild pass. It converts named-region metrics, ledger tracks, and DOM evidence into a primitive worklist so the next iteration targets text, rows, cards, controls, icons, tables, and SVG marks instead of adding more bitmap assets.
 - Before editing a `component-required` region, run `measure_primitives.py` on the reference crop. Do not add primitives by eye: measured boxes for text lines, controls, icons, cards, dividers, and SVG marks must guide CSS geometry.
 - After measuring, build the element manifest before writing DOM: run `init_element_manifest.py` to scaffold one entry per measured box, then label every element yourself by looking at the reference crops — `type` (text/icon/control/...), `content` (extracted text or a semantic description), and `maps_to` (target component and slot). This is the element → component mapping; measurement gives geometry, you give semantics. Rebuilt DOM nodes must carry `data-element="<id>"` so the contract is checkable.
@@ -111,19 +128,21 @@ Use this loop inside Phases 1 and 5 of the Blueprint Workflow, or standalone whe
 1. Identify the source image and copy it into the project or output folder.
 2. Create a lab folder, usually `outputs/pixel-twin/` or `work/pixel-twin/`.
 3. Run `scripts/prepare_lab.py` to create the workbench and auto-detected slices.
-4. Implement the coded reconstruction inside the generated `rebuilt-layer`.
-5. Serve the lab over local HTTP; avoid `file://` because browser tools may block it.
-6. Capture `reference`, `rebuilt`, and `exact` modes at the source image's native size with `scripts/capture_modes.cjs`.
-7. Run `scripts/pixel_diff.py` to create diff images and JSON metrics.
-8. Run `scripts/plan_calibration.py` to generate `calibration-plan.md`; follow its pass order (layout → tokens → islands → rebuild) for the next iteration, and merge `slice-manifest.suggested.json` into your manifest when it appears.
-9. Run `scripts/triage_lab.py` to write `triage-report.md`; let that report pick the next optimization pass before making more code edits.
-10. If triage calls for manual manifest, islands, or structural recovery, run `scripts/bootstrap_recovery.py` and use its `recovery/component-ledger.md` as the next-pass worklist.
-11. For a measurable high-fidelity hybrid pass, run `scripts/materialize_recovery_lab.py` to write the recovery ledger/assets into the lab's `rebuilt` layer, capture again, and compare the actual match percentage.
-12. Run `scripts/fidelity_gate.py --target-match 98` before claiming any success. `component_only_98` is the strict no-asset gate; `componentized_islands_98` is the practical componentized gate when only island tracks use extracted assets; `hybrid_asset_98` and `placeholder_contract` are secondary evidence only.
-13. If a componentized gate fails, run `scripts/component_primitives.py`, then run `scripts/measure_primitives.py` for the worst `component-required` regions.
-14. Rebuild those regions as semantic DOM/SVG primitives using `measured-primitives.md` for geometry, then rerun capture and diff.
-15. Run `scripts/compare_region_metrics.py --baseline <clean-lab> --candidate <edited-lab>` and keep or revert each component strategy based on region deltas.
-16. Write a short QA result:
+4. Run `scripts/classify_slices.py --mode init`, label every slice from `classification-sheet.png`, then `--mode apply` — tracks are routed before anything is built.
+5. Implement the coded reconstruction inside the generated `rebuilt-layer`. Repeated content (tables, lists, KPI rows, tabs) renders through small render-from-data helpers you write in the lab's `script.js` — one template function mapped over a mock data array (container `data-element`, per-row `data-element-item`), never hand-written sibling blocks; approximation regions get their library container, not hand-drawn marks.
+6. Serve the lab over local HTTP; avoid `file://` because browser tools may block it.
+7. Capture `reference`, `rebuilt`, and `exact` modes at the source image's native size with `scripts/capture_modes.cjs`.
+8. Run `scripts/pixel_diff.py` to create diff images and JSON metrics.
+9. Run `scripts/plan_calibration.py` to generate `calibration-plan.md`; follow its pass order (layout → tokens → islands → rebuild) for the next iteration, and merge `slice-manifest.suggested.json` into your manifest when it appears.
+10. Run `scripts/triage_lab.py` to write `triage-report.md`; let that report pick the next optimization pass before making more code edits.
+11. If triage calls for manual manifest, islands, or structural recovery, run `scripts/bootstrap_recovery.py` and use its `recovery/component-ledger.md` as the next-pass worklist.
+12. For a measurable high-fidelity hybrid pass, run `scripts/materialize_recovery_lab.py` to write the recovery ledger/assets into the lab's `rebuilt` layer, capture again, and compare the actual match percentage.
+13. Run `scripts/fidelity_gate.py --target-match 98` before claiming any success. `component_only_98` is the strict no-asset gate; `componentized_islands_98` is the practical componentized gate when only island tracks use extracted assets; `hybrid_asset_98` and `placeholder_contract` are secondary evidence only.
+14. If a componentized gate fails, run `scripts/component_primitives.py`, then run `scripts/measure_primitives.py` for the worst `component-required` regions.
+15. Rebuild those regions as semantic DOM primitives using the per-region `primitive-measurements/<region>.json` for geometry, then rerun capture and diff.
+16. Run `scripts/compare_region_metrics.py --baseline <clean-lab> --candidate <edited-lab>` and keep or revert each component strategy based on region deltas.
+17. Enforce the iteration budget: if two consecutive capture→diff rounds improve the active metric (tolerant for text-heavy component regions, strict otherwise) by less than 0.5 percentage points, stop and report the residual instead of looping.
+18. Write a short QA result:
    - source path
    - implementation screenshot path
    - viewport
@@ -220,7 +239,19 @@ python /path/to/pixel-twin-lab/scripts/pixel_diff.py \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
 
-Optional `--tolerance N` additionally reports mismatch ignoring per-channel deltas `<= N` (strict values are always included); useful as a practical convergence target when antialiasing noise dominates.
+Optional `--tolerance N` additionally reports mismatch ignoring per-channel deltas `<= N` (strict values are always included); useful as a practical convergence target when antialiasing noise dominates. Stdout is a brief summary (overall metrics plus the five worst regions per capture); the full per-region data goes to `pixel-diff-summary.json` — read specific entries from there instead of re-running with `--print full`.
+
+Classify slice content and route tracks (Phase 1.5):
+
+```bash
+python /path/to/pixel-twin-lab/scripts/classify_slices.py \
+  --out-dir /absolute/path/outputs/pixel-twin --mode init
+# read classification-sheet.png ONCE, fill content_type for every slice in slice-classification.json
+python /path/to/pixel-twin-lab/scripts/classify_slices.py \
+  --out-dir /absolute/path/outputs/pixel-twin --mode apply
+```
+
+`--mode init` writes `slice-classification.json` (one entry per named slice; re-running merges new slices without clobbering labels) and `classification-sheet.png` (every crop on one labeled sheet — classification costs one image read, not one per region). `--mode apply` validates the labels and writes `routing-manifest.json` (track, handling, library, eval per region) and merges `track` into `regions.json`. `bootstrap_recovery.py`, `component_primitives.py`, and `fidelity_gate.py` treat the manifest as the authoritative track source. Icons route to islands with `handling: crop-asset` by default; set `handling: regenerate-transparent` per entry when the icon sits on a gradient or photo. Charts/maps accept a per-entry `library` override.
 
 Generate a calibration plan from the latest capture:
 
@@ -339,7 +370,7 @@ python /path/to/pixel-twin-lab/scripts/measure_primitives.py \
   --regions kpi-row,topbar
 ```
 
-`measure_primitives.py` reads the reference image and the component primitive worklist, then writes `measured-primitives.json`, `measured-primitives.md`, and `primitive-measurements/*-primitive-overlay.png`. Use these measured boxes to place text, icons, controls, dividers, cards, and SVG marks. If a manual component edit makes the pixel diff worse, treat it as proof that the primitive geometry was guessed rather than measured.
+`measure_primitives.py` reads the reference image and the component primitive worklist, then writes `measured-primitives.json`, `measured-primitives.md`, per-region `primitive-measurements/<region>.json`, and `primitive-measurements/*-primitive-overlay.png`. Use these measured boxes to place text, icon assets, controls, dividers, and cards. When fixing one region, read its per-region file, not the full `measured-primitives.json`. If a manual component edit makes the pixel diff worse, treat it as proof that the primitive geometry was guessed rather than measured.
 
 Scaffold, label, and verify the element manifest (element → component mapping):
 
@@ -357,7 +388,7 @@ python /path/to/pixel-twin-lab/scripts/verify_elements.py \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
 
-`init_element_manifest.py` turns `measured-primitives.json` boxes into `element-manifest.json` entries with stable ids; re-running merges new boxes without clobbering existing labels. Labeling is the agent's job, not an algorithm's: set `type`, `content` (extract the actual text for text elements), and `maps_to` for every element. `measure_dom_elements.cjs` dumps the rendered geometry of every `[data-element]` node in reference coordinates; `verify_elements.py` checks each manifest element for presence (exactly one DOM node), position/size deltas (`--max-position-delta`, `--max-size-delta`), text content, and type compatibility (an `icon` must contain svg/img; a `control` must be an interactive tag/role). The result feeds the `element_contract` gate; "38/52 elements verified" is also the progress meter between iteration zero and 98%.
+`init_element_manifest.py` turns `measured-primitives.json` boxes into `element-manifest.json` entries with stable ids; re-running merges new boxes without clobbering existing labels. Labeling is the agent's job, not an algorithm's: set `type`, `content` (extract the actual text for text elements), and `maps_to` for every element. **Repeated content is one `collection` entry, not N cell entries:** for a table/list/queue, keep the container element, set `type: collection`, declare `item_count` (or `min_items`) and `first_item_content`, and delete the per-row entries — the DOM contract is `data-element` on the container plus `data-element-item` on every row, which is exactly what rendering from a mock-data array produces. Approximation chart containers are `type: chart-host` (verified by the presence of the library's canvas/svg output). `measure_dom_elements.cjs` dumps the rendered geometry of every `[data-element]` node in reference coordinates (including item counts and first-item text for collections); `verify_elements.py` checks each manifest element for presence (exactly one DOM node), position/size deltas (`--max-position-delta`, `--max-size-delta`), text content, type compatibility (an `icon` must contain svg/img; a `control` must be an interactive tag/role), and the collection contract. The result feeds the `element_contract` gate; "38/52 elements verified" is also the progress meter between iteration zero and 98%.
 
 Compare an edited region against a clean baseline:
 
@@ -420,7 +451,9 @@ Pass `--manifest /absolute/path/slice-manifest.json` (and optionally `--no-cover
 
 Blueprint flow artifacts (primary):
 
-- `ui-blueprint.json` — the five-layer decomposition, schema-valid and measurement-reconciled; the single visual source of truth for code generation
+- `slice-classification.json`, `classification-sheet.png`, and `routing-manifest.json` from `classify_slices.py` — the Phase 1.5 content classification and track routing, authored before any blueprint or code work
+- `ui-blueprint.json` — the six-layer decomposition (layout, components, tokens, data, interactions, implementation), schema-valid and measurement-reconciled; the single visual source of truth for code generation
+- mock data fixture files in the target project (one per data-driven component, generated from the blueprint's data layer)
 - `visual-tokens.json`/`.md` from `extract_tokens.py`, curated into the blueprint
 - `layout-relations.json`/`.md` from `infer_layout.py`, adopted into the blueprint
 - `blueprint-validation.json`/`.md` from `validate_blueprint.py` — must pass before project code is written
@@ -483,11 +516,11 @@ Never claim one-pixel success from visual inspection alone. Use screenshot compa
 - Calibrate geometry before color: align canvas size, margins, card positions, column widths, and line heights first — a 2px layout drift turns every color comparison red.
 - Sample colors from the reference bitmap (background, borders, card fills, text, shadows) and centralize them as tokens in the project's style system; never write colors by eye.
 - Fonts are the largest componentization error source: pin family, weight, size, and line-height explicitly. AI-generated references rarely use a standard font, so text can only be approximated — when a text region stops converging, turn it into an SVG or slice island and record that in the ledger.
-- Charts: on the bitmap-exact track replicate with SVG paths/rects, because chart libraries impose their own axes, antialiasing, and point placement; on the component-faithful track use the project's existing chart library.
+- Charts are configured, never drawn: on the component-faithful track use the project's existing chart library, or echarts by default, fed the data layer's mock series. Replicating a chart with bespoke SVG paths/rects is allowed only as a bitmap-exact ceiling diagnostic that never ships.
 - Use absolute paths in generated reports.
 - Do not hide reference overlays or toolbars in capture except through `?capture=1`.
 - Keep temporary capture scripts in `work/` when adapting the workflow for a repo.
 - Prefer `outputs/` for user-facing captures and diff images.
 - For frontend handoff, include screenshots in the final answer when the user asked to see the effect.
 - Never copy the lab template into production source as the final app. The lab is a measuring tool; the final output must follow the target project's framework and conventions.
-- Never introduce Tailwind, CSS Modules, an icon set, chart library, or UI kit just because the reference would be easier to build that way; add dependencies only when the project has no suitable convention and the user approves.
+- Never introduce Tailwind, CSS Modules, an icon set, or a UI kit just because the reference would be easier to build that way; add dependencies only when the project has no suitable convention and the user approves. **Exception — approximation-track libraries:** regions routed to `chart`/`map`/`scene-3d` need a real rendering library by design. Prefer the project's existing one; otherwise propose the default (echarts / leaflet / three) and ask the user once per run — hand-drawing the visualization to avoid the dependency is not an option.

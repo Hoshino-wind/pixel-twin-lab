@@ -133,6 +133,8 @@ async function main() {
       for (const el of document.querySelectorAll(sel)) {
         const rect = el.getBoundingClientRect();
         const section = el.closest("[data-track]");
+        const items = el.querySelectorAll("[data-element-item]");
+        const firstItem = items.length ? items[0] : null;
         elements.push({
           id: el.getAttribute("data-element"),
           tag: el.tagName.toLowerCase(),
@@ -141,6 +143,9 @@ async function main() {
           text: (el.textContent || "").replace(/\s+/g, " ").trim(),
           has_svg: Boolean(el.matches("svg") || el.querySelector("svg")),
           has_img: Boolean(el.matches("img") || el.querySelector("img")),
+          has_canvas: Boolean(el.matches("canvas") || el.querySelector("canvas")),
+          item_count: items.length,
+          first_item_text: firstItem ? (firstItem.textContent || "").replace(/\s+/g, " ").trim() : null,
           bounds: {
             x: Math.round(rect.x - origin.x),
             y: Math.round(rect.y - origin.y),

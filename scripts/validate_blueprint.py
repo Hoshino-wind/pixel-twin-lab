@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Gate the five-layer ui-blueprint.json: schema-shape validation plus reconciliation against measurements.
+"""Gate the six-layer ui-blueprint.json: schema-shape validation plus reconciliation against measurements.
 
 The blueprint is only trusted when every layer can be proven against the lab artifacts:
 bounds against measured-primitives.json, colors against the reference pixels, references
-against declared ids. Errors block code generation (exit code 1); warnings do not.
+against declared ids, datasets against the components they feed. Errors block code
+generation (exit code 1); warnings do not.
 """
 
 from __future__ import annotations
@@ -46,6 +47,13 @@ INTERACTION_STATES = {"hover", "active", "focus", "disabled", "selected", "loadi
 INTERACTION_SOURCES = {"project-convention", "project-token", "type-default"}
 PLAN_ACTIONS = {"reuse", "extend", "create"}
 INTERACTIVE_COMPONENT_TYPES = {"button", "input", "select", "tabs", "checkbox", "switch"}
+DATA_SHAPES = {"rows", "items", "series", "keyvalue", "tree", "geo"}
+DATA_SOURCES = {"extracted", "approximated"}
+# Component types that must be data-driven: a missing data entry means codegen would
+# hard-code content nodes (lists/tables) or draw data shapes by hand (charts).
+DATA_REQUIRED_COMPONENT_TYPES = {"table", "list", "chart-container"}
+DATA_RECOMMENDED_COMPONENT_TYPES = {"map-container"}
+ARRAY_DATA_SHAPES = {"rows", "items", "series"}
 
 
 def load_json(path: Path, fallback: Any) -> Any:
@@ -477,6 +485,71 @@ def validate_interactions(log: IssueLog, blueprint: dict[str, Any], components: 
         )
 
 
+def validate_data(log: IssueLog, blueprint: dict[str, Any], components: dict[str, dict[str, Any]]) -> None:
+    entries = blueprint.get("data")
+    if entries is None:
+        entries = []
+    elif not isinstance(entries, list):
+        log.error("data", "data", "data must be an array")
+        entries = []
+    covered: set[str] = set()
+    for index, entry in enumerate(entries):
+        path = f"data[{index}]"
+        if not check_object(log, "data", path, entry, ["component_id", "shape", "mock_data", "binding", "source"],
+                            {"component_id", "shape", "fields", "mock_data", "binding", "source", "library", "notes"}):
+            continue
+        component_id = entry.get("component_id")
+        if "component_id" in entry:
+            if not isinstance(component_id, str):
+                log.error("data", path, f"component_id must be a string, got {component_id!r}")
+            elif component_id not in components:
+                log.error("data", path, f"component_id '{component_id}' is not a declared component")
+            else:
+                covered.add(component_id)
+        shape = entry.get("shape")
+        if "shape" in entry:
+            check_enum(log, "data", path, "shape", shape, DATA_SHAPES, True)
+        if "source" in entry:
+            check_enum(log, "data", path, "source", entry.get("source"), DATA_SOURCES, True)
+        if "binding" in entry and (not isinstance(entry["binding"], str) or not entry["binding"].strip()):
+            log.error("data", path, f"binding must be a non-empty string, got {entry['binding']!r}")
+        fields = entry.get("fields")
+        if "fields" in entry and (not isinstance(fields, list) or any(not isinstance(f, str) for f in fields)):
+            log.error("data", path, "fields must be an array of strings")
+        for field in ("library", "notes"):
+            if field in entry and not isinstance(entry[field], str):
+                log.error("data", path, f"{field} must be a string, got {entry[field]!r}")
+        mock_data = entry.get("mock_data")
+        if "mock_data" in entry:
+            if shape in ARRAY_DATA_SHAPES:
+                if not isinstance(mock_data, list) or not mock_data:
+                    log.error("data", path, f"mock_data for shape '{shape}' must be a non-empty array")
+                elif isinstance(fields, list) and fields:
+                    for row_index, row in enumerate(mock_data):
+                        if isinstance(row, dict) and not set(fields) & set(row):
+                            log.error("data", path,
+                                      f"mock_data[{row_index}] shares no keys with declared fields {fields}")
+                            break
+            elif shape in DATA_SHAPES and not isinstance(mock_data, (list, dict)):
+                log.error("data", path, f"mock_data must be an array or object, got {type(mock_data).__name__}")
+        component = components.get(component_id) if isinstance(component_id, str) else None
+        if component and component.get("type") == "chart-container" and not (isinstance(entry.get("library"), str) and entry["library"].strip()):
+            log.error("data", path,
+                      f"chart data for '{component_id}' must declare its rendering library (e.g. 'echarts'); "
+                      "charts are rendered by a third-party library fed mock data, never drawn as bespoke SVG/CSS")
+
+    for component_id, component in sorted(components.items()):
+        ctype = component.get("type")
+        if ctype in DATA_REQUIRED_COMPONENT_TYPES and component_id not in covered:
+            log.error("data", component["path"],
+                      f"component '{component_id}' (type '{ctype}') has no data entry: data-driven components must "
+                      "render from mock_data (template + array, or library option), not hard-coded content nodes")
+        elif ctype in DATA_RECOMMENDED_COMPONENT_TYPES and component_id not in covered:
+            log.warning("data", component["path"],
+                        f"component '{component_id}' (type '{ctype}') has no data entry; declare markers/center as "
+                        "mock data if the map shows data, or note why it is static")
+
+
 def validate_implementation(log: IssueLog, blueprint: dict[str, Any], components: dict[str, dict[str, Any]]) -> None:
     implementation = blueprint.get("implementation")
     if not check_object(log, "implementation", "implementation", implementation, ["framework", "styling", "plan"],
@@ -711,7 +784,7 @@ def reconcile_typography(
 # Reporting
 # ---------------------------------------------------------------------------
 
-LAYER_ORDER = ["root", "source", "layout", "components", "tokens", "interactions", "implementation"]
+LAYER_ORDER = ["root", "source", "layout", "components", "tokens", "data", "interactions", "implementation"]
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -785,7 +858,7 @@ def main() -> None:
 
     # --- Layer A: structure ---
     required_top = ["version", "source", "layout", "components", "tokens", "interactions", "implementation"]
-    allowed_top = set(required_top) | {"generated_at"}
+    allowed_top = set(required_top) | {"generated_at", "data"}
     for key in required_top:
         if key not in blueprint:
             log.error("root", "$", f"missing required field '{key}'")
@@ -800,6 +873,7 @@ def main() -> None:
     regions, relations = validate_layout(log, blueprint) if "layout" in blueprint else ({}, [])
     components = validate_components(log, blueprint, regions) if "components" in blueprint else {}
     tokens = validate_tokens(log, blueprint) if "tokens" in blueprint else {"colors": [], "typography": [], "names": set()}
+    validate_data(log, blueprint, components)
     if "interactions" in blueprint:
         validate_interactions(log, blueprint, components)
     if "implementation" in blueprint:
