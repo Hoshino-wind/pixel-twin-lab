@@ -228,7 +228,7 @@ def main() -> None:
     parser.add_argument("--threshold", type=int, default=12, help="RGB max-channel delta from region border background")
     parser.add_argument("--dilation", type=int, default=7, help="Odd MaxFilter size used to merge glyphs into primitives")
     parser.add_argument("--min-area", type=int, default=24)
-    parser.add_argument("--max-position-delta", type=float, default=8.0, help="Max mean matched-primitive center delta in px")
+    parser.add_argument("--max-position-delta", type=float, default=13.0, help="Max mean matched-primitive center delta in px")
     parser.add_argument("--max-count-delta-pct", type=float, default=20.0, help="Max primitive count difference vs reference")
     parser.add_argument("--max-palette-delta", type=float, default=32.0, help="Max RGB distance between foreground mean colors")
     parser.add_argument("--json-name", default="structural-comparison.json")

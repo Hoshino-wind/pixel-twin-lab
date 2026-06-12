@@ -112,7 +112,7 @@ async function launchBrowser(args) {
 async function main() {
   const args = parseArgs(process.argv);
   if (args.help || args.h) {
-    console.log("Usage: capture_modes.cjs --url http://127.0.0.1:8787/ --out-dir /abs/lab [--modes reference,rebuilt,exact] [--width 1536 --height 1024] [--browser bundled|system]");
+    console.log("Usage: capture_modes.cjs --url http://127.0.0.1:8787/ --out-dir /abs/lab [--modes reference,rebuilt,exact] [--width 1536 --height 1024] [--browser bundled|system] [--wait-until networkidle|load|domcontentloaded] [--settle-ms 0]");
     return;
   }
   if (!args.url || !args["out-dir"]) {
@@ -131,6 +131,8 @@ async function main() {
     .split(",")
     .map((mode) => mode.trim())
     .filter(Boolean);
+  const waitUntil = String(args["wait-until"] || "networkidle");
+  const settleMs = Number(args["settle-ms"] || 0);
 
   const { browser, playwrightPackage, channel, executablePath } = await launchBrowser(args);
   const meta = {
@@ -141,12 +143,17 @@ async function main() {
     platform: process.platform,
     color_profile: "srgb",
     viewport: { width, height, deviceScaleFactor: 1 },
+    wait_until: waitUntil,
+    settle_ms: settleMs,
     modes,
   };
   try {
     const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
     for (const mode of modes) {
-      await page.goto(modeUrl(args.url, mode), { waitUntil: "networkidle" });
+      await page.goto(modeUrl(args.url, mode), { waitUntil });
+      if (settleMs > 0) {
+        await page.waitForTimeout(settleMs);
+      }
       await page.screenshot({ path: path.join(outDir, `${mode}-capture.png`), fullPage: false });
     }
   } finally {

@@ -28,7 +28,7 @@ def load_json(path: Path, fallback: Any) -> Any:
         return fallback
 
 
-def quantize_colors(image: Image.Image) -> list[dict[str, Any]]:
+def quantize_colors(image: Image.Image, merge_distance: float) -> list[dict[str, Any]]:
     """Quantize each channel to QUANT_LEVELS, count frequencies, merge close buckets."""
     small = image.copy()
     small.thumbnail((DOWNSAMPLE_MAX, DOWNSAMPLE_MAX))
@@ -49,7 +49,7 @@ def quantize_colors(image: Image.Image) -> list[dict[str, Any]]:
         count = int(counts[index])
         merged = False
         for cluster in clusters:
-            if float(np.linalg.norm(cluster["color"] - color)) < MERGE_DISTANCE:
+            if float(np.linalg.norm(cluster["color"] - color)) < merge_distance:
                 total = cluster["count"] + count
                 cluster["color"] = (cluster["color"] * cluster["count"] + color * count) / total
                 cluster["count"] = total
@@ -74,11 +74,11 @@ def snap_to_reference(arr: np.ndarray, color: np.ndarray) -> tuple[list[int], li
     return value, [int(x), int(y)]
 
 
-def build_colors(image: Image.Image, max_colors: int) -> list[dict[str, Any]]:
+def build_colors(image: Image.Image, max_colors: int, merge_distance: float) -> list[dict[str, Any]]:
     arr = np.asarray(image.convert("RGB")).astype(np.int16)
     colors: list[dict[str, Any]] = []
     seen: dict[str, dict[str, Any]] = {}
-    for cluster in quantize_colors(image):
+    for cluster in quantize_colors(image, merge_distance):
         value, sampled_at = snap_to_reference(arr, cluster["color"])
         hex_value = "#{:02x}{:02x}{:02x}".format(*value)
         if hex_value in seen:
@@ -90,6 +90,7 @@ def build_colors(image: Image.Image, max_colors: int) -> list[dict[str, Any]]:
             "name": f"color-{len(colors) + 1:02d}",
             "value": hex_value,
             "sampled_at": sampled_at,
+            "coverage_pct": round(cluster["coverage"] * 100, 3),
             "_coverage": cluster["coverage"],
         }
         if not colors:
@@ -237,6 +238,12 @@ def main() -> None:
     parser.add_argument("--reference", help="Reference image path; defaults to <out-dir>/assets/reference.png")
     parser.add_argument("--measured-primitives", help="measured-primitives JSON filename/path")
     parser.add_argument("--max-colors", type=int, default=12, help="Number of color tokens to keep")
+    parser.add_argument(
+        "--color-merge-distance",
+        type=float,
+        default=MERGE_DISTANCE,
+        help="RGB Euclidean distance for merging close quantized color buckets",
+    )
     parser.add_argument("--json-name", default="visual-tokens.json")
     parser.add_argument("--md-name", default="visual-tokens.md")
     args = parser.parse_args()
@@ -254,7 +261,7 @@ def main() -> None:
     has_measured = isinstance(measured, dict)
 
     image = Image.open(reference_path).convert("RGB")
-    colors = build_colors(image, args.max_colors)
+    colors = build_colors(image, args.max_colors, args.color_merge_distance)
     typography = build_typography(measured) if has_measured else []
     spacing = build_spacing(measured) if has_measured else []
 
@@ -262,6 +269,7 @@ def main() -> None:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "out_dir": str(out_dir),
         "reference": str(reference_path),
+        "color_merge_distance": args.color_merge_distance,
         "colors": strip_private(colors),
         "typography": strip_private(typography),
         "spacing": strip_private(spacing),

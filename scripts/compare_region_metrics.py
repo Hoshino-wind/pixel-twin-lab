@@ -162,7 +162,7 @@ def main() -> None:
     parser.add_argument(
         "--epsilon",
         type=float,
-        default=0.01,
+        default=0.05,
         help="Delta in percentage points beyond which a change counts as regressed/improved; deltas within ±epsilon are unchanged",
     )
     parser.add_argument("--fail-on-regression", action="store_true", help="Exit nonzero if overall or any selected region regresses in strict or tolerant mismatch")

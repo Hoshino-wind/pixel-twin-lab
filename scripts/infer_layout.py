@@ -226,11 +226,12 @@ def grid_relation(scope: str, rows: list[list[dict[str, Any]]], min_confidence: 
     }
 
 
-def stack_relation(scope: str, elements: list[dict[str, Any]], reason: str) -> dict[str, Any]:
+def stack_relation(scope: str, elements: list[dict[str, Any]], reason: str, min_confidence: float) -> dict[str, Any]:
     ordered = sorted(elements, key=lambda e: (e["bounds"]["y"], e["bounds"]["x"]))
+    relation_type = "stack" if STACK_CONFIDENCE >= min_confidence else "absolute-fallback"
     return {
         "scope": scope,
-        "type": "stack",
+        "type": relation_type,
         "items": [e["id"] for e in ordered],
         "confidence": STACK_CONFIDENCE,
         "notes": reason,
@@ -241,7 +242,7 @@ def infer_region(scope: str, elements: list[dict[str, Any]], min_confidence: flo
     if not elements:
         return []
     if len(elements) == 1:
-        return [stack_relation(scope, elements, "single element in region")]
+        return [stack_relation(scope, elements, "single element in region", min_confidence)]
     rows = group_rows(elements)
 
     if len(rows) == 1:
@@ -274,7 +275,7 @@ def infer_region(scope: str, elements: list[dict[str, Any]], min_confidence: flo
     ):
         relations.append(column_relation(scope, leftovers, min_confidence))
     elif leftovers:
-        relations.append(stack_relation(scope, leftovers, "elements not captured by row/column/grid grouping"))
+        relations.append(stack_relation(scope, leftovers, "elements not captured by row/column/grid grouping", min_confidence))
     return relations
 
 
