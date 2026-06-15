@@ -129,6 +129,35 @@ async function main() {
     payload = await page.evaluate((sel) => {
       const stage = document.querySelector(".stage");
       const origin = stage ? stage.getBoundingClientRect() : { x: 0, y: 0, width: 0, height: 0 };
+      // --- computed-style capture (for the element style contract) ---
+      const toHex = (c) => {
+        if (!c) return null;
+        const m = String(c).match(/rgba?\(([^)]+)\)/);
+        if (!m) return null;
+        const p = m[1].split(",").map((s) => parseFloat(s.trim()));
+        if (p.length > 3 && p[3] === 0) return null; // fully transparent -> no color
+        const h = (n) => Math.max(0, Math.min(255, Math.round(n || 0))).toString(16).padStart(2, "0");
+        return "#" + h(p[0]) + h(p[1]) + h(p[2]);
+      };
+      const round2 = (n) => Math.round((n || 0) * 100) / 100;
+      const styleOf = (node) => {
+        const cs = getComputedStyle(node);
+        const fs = parseFloat(cs.fontSize) || 0;
+        const lh = cs.lineHeight === "normal" ? round2(fs * 1.2) : (parseFloat(cs.lineHeight) || 0);
+        return {
+          font_size_px: round2(fs),
+          font_weight: Number(cs.fontWeight) || ({ normal: 400, bold: 700, lighter: 300, bolder: 700 }[cs.fontWeight] || null),
+          color: toHex(cs.color),
+          line_height_px: round2(lh),
+          letter_spacing_px: cs.letterSpacing === "normal" ? 0 : round2(parseFloat(cs.letterSpacing) || 0),
+          text_align: cs.textAlign || null,
+          vertical_align: cs.verticalAlign || null,
+          text_transform: cs.textTransform || null,
+          font_family: (cs.fontFamily || "").split(",")[0].replace(/["']/g, "").trim() || null,
+          background_color: toHex(cs.backgroundColor),
+          border_radius_px: round2(parseFloat(cs.borderTopLeftRadius) || 0),
+        };
+      };
       const elements = [];
       for (const el of document.querySelectorAll(sel)) {
         const rect = el.getBoundingClientRect();
@@ -152,6 +181,16 @@ async function main() {
             width: Math.round(rect.width),
             height: Math.round(rect.height),
           },
+          style: styleOf(el),
+          runs: (() => {
+            const rs = el.querySelectorAll("[data-run]");
+            if (!rs.length) return undefined;
+            return Array.from(rs).map((r) => ({
+              id: r.getAttribute("data-run"),
+              text: (r.textContent || "").replace(/\s+/g, " ").trim(),
+              style: styleOf(r),
+            }));
+          })(),
         });
       }
       return {

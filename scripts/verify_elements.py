@@ -24,6 +24,119 @@ from typing import Any
 CONTROL_TAGS = {"button", "input", "select", "textarea", "a", "label", "summary"}
 CONTROL_ROLES = {"button", "link", "checkbox", "radio", "switch", "tab", "menuitem", "slider", "combobox"}
 
+WEIGHT_NAMES = {"normal": 400, "bold": 700, "lighter": 300, "bolder": 700}
+STYLE_DEFAULTS = {
+    "font_size_px": 1.0,
+    "font_weight": 0,
+    "color_rgb_max": 8,
+    "line_height_px": 2.0,
+    "letter_spacing_px": 0.5,
+    "border_radius_px": 2.0,
+}
+STYLE_NUMERIC = (
+    ("font_size_px", "font_size_px"),
+    ("line_height_px", "line_height_px"),
+    ("letter_spacing_px", "letter_spacing_px"),
+    ("border_radius_px", "border_radius_px"),
+)
+STYLE_COLORS = ("color", "background_color", "border_color")
+STYLE_ENUMS = ("text_align", "vertical_align", "text_transform")
+
+
+def norm_weight(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    s = str(value).strip().lower()
+    if s.isdigit():
+        return int(s)
+    return WEIGHT_NAMES.get(s)
+
+
+def hex_to_rgb(value: Any) -> tuple[int, int, int] | None:
+    if not isinstance(value, str):
+        return None
+    h = value.strip().lstrip("#")
+    if len(h) != 6:
+        return None
+    try:
+        return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+    except ValueError:
+        return None
+
+
+def compare_style(expected: dict[str, Any], dom_style: dict[str, Any], tol: dict[str, float], label: str = "") -> list[str]:
+    """Per-property style assertion. Returns one problem string per property outside tolerance,
+    each carrying the actual-vs-expected delta — the repair worklist line."""
+    problems: list[str] = []
+    if not isinstance(expected, dict) or not isinstance(dom_style, dict):
+        return problems
+
+    def limit(key: str) -> float:
+        return float(tol.get(key, STYLE_DEFAULTS.get(key, 0)))
+
+    pfx = f"{label} " if label else ""
+    for prop, tolkey in STYLE_NUMERIC:
+        if expected.get(prop) is None:
+            continue
+        exp = float(expected[prop])
+        act = dom_style.get(prop)
+        if act is None:
+            problems.append(f"{pfx}{prop}: expected {exp}, DOM missing")
+            continue
+        delta = abs(float(act) - exp)
+        if delta > limit(tolkey):
+            problems.append(f"{pfx}{prop}: {act} vs expected {exp} (Δ{round(delta, 2)} > {limit(tolkey)})")
+
+    if expected.get("font_weight") is not None:
+        exp_w = norm_weight(expected["font_weight"])
+        act_w = norm_weight(dom_style.get("font_weight"))
+        if act_w is None:
+            problems.append(f"{pfx}font_weight: expected {exp_w}, DOM missing")
+        elif exp_w is not None and abs(act_w - exp_w) > limit("font_weight"):
+            problems.append(f"{pfx}font_weight: {act_w} vs expected {exp_w} (Δ{abs(act_w - exp_w)})")
+
+    for prop in STYLE_COLORS:
+        if not expected.get(prop):
+            continue
+        exp_c = hex_to_rgb(expected[prop])
+        if exp_c is None:
+            continue
+        act_c = hex_to_rgb(dom_style.get(prop))
+        if act_c is None:
+            problems.append(f"{pfx}{prop}: expected {expected[prop]}, DOM {dom_style.get(prop)}")
+            continue
+        delta = max(abs(act_c[i] - exp_c[i]) for i in range(3))
+        if delta > limit("color_rgb_max"):
+            problems.append(f"{pfx}{prop}: {dom_style.get(prop)} vs expected {expected[prop]} (Δch{delta} > {int(limit('color_rgb_max'))})")
+
+    for prop in STYLE_ENUMS:
+        if expected.get(prop) is None:
+            continue
+        act = dom_style.get(prop)
+        if act is not None and str(act) != str(expected[prop]):
+            problems.append(f"{pfx}{prop}: '{act}' vs expected '{expected[prop]}'")
+
+    if expected.get("font_family"):
+        act = str(dom_style.get("font_family") or "")
+        exp_f = str(expected["font_family"])
+        if act and exp_f.lower() not in act.lower() and act.lower() not in exp_f.lower():
+            problems.append(f"{pfx}font_family: '{act}' vs expected '{exp_f}'")
+
+    return problems
+
+
+def base_tolerance(args: argparse.Namespace) -> dict[str, float]:
+    return {
+        "font_size_px": args.max_font_size_delta,
+        "font_weight": args.max_font_weight_delta,
+        "color_rgb_max": args.max_color_delta,
+        "line_height_px": args.max_line_height_delta,
+        "letter_spacing_px": args.max_letter_spacing_delta,
+        "border_radius_px": args.max_radius_delta,
+    }
+
 
 def load_json(path: Path, fallback: Any) -> Any:
     if not path.exists():
@@ -137,6 +250,44 @@ def verify_element(element: dict[str, Any], dom_matches: list[dict[str, Any]], a
         if not compatible:
             result["problems"].append(reason)
 
+    # --- style contract (optional): single style and/or composite runs ---
+    base_tol = base_tolerance(args)
+
+    def apply_style(block: dict[str, Any], dom_style: dict[str, Any], label: str = "") -> None:
+        if not isinstance(block, dict) or not isinstance(block.get("expected"), dict):
+            return
+        tol = {**base_tol, **(block.get("tolerance") or {})}
+        problems = compare_style(block["expected"], dom_style or {}, tol, label=label)
+        if not problems:
+            return
+        if block.get("severity") == "warn":
+            result.setdefault("warnings", []).extend(problems)
+        else:
+            result["problems"].extend(problems)
+
+    style_block = element.get("style")
+    if isinstance(style_block, dict):
+        apply_style(style_block, dom.get("style") or {})
+
+    runs = element.get("runs")
+    if isinstance(runs, list) and runs:
+        dom_runs = dom.get("runs") or []
+        result["run_count"] = len(dom_runs)
+        if len(dom_runs) != len(runs):
+            result["problems"].append(
+                f"runs: DOM has {len(dom_runs)} [data-run] node(s), manifest declares {len(runs)} "
+                "(composite text must render one node per run carrying data-run)"
+            )
+        for i, run in enumerate(runs):
+            if not isinstance(run, dict):
+                continue
+            dom_run = dom_runs[i] if i < len(dom_runs) else {}
+            exp_t = normalize_text(str(run.get("text") or ""))
+            act_t = normalize_text(str(dom_run.get("text") or ""))
+            if exp_t and exp_t not in act_t and act_t not in exp_t:
+                result["problems"].append(f"run[{i}] text: '{run.get('text')}' vs DOM '{dom_run.get('text')}'")
+            apply_style(run.get("style") or {}, dom_run.get("style") or {}, label=f"run[{i}]")
+
     result["status"] = "ok" if not result["problems"] else "failed"
     return result
 
@@ -160,7 +311,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"| `{region['name']}` | {region['ok']}/{region['total']} |")
     lines.append("")
     for region in report["regions"]:
-        failures = [e for e in region["elements"] if e["status"] != "ok" or e["problems"]]
+        failures = [e for e in region["elements"] if e["status"] != "ok" or e["problems"] or e.get("warnings")]
         if not failures:
             continue
         lines.append(f"## `{region['name']}`")
@@ -169,6 +320,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- `{element['id']}` ({element['status']}):")
             for problem in element["problems"]:
                 lines.append(f"  - {problem}")
+            for warning in element.get("warnings", []):
+                lines.append(f"  - ⚠ {warning}")
         lines.append("")
     return "\n".join(lines)
 
@@ -180,6 +333,12 @@ def main() -> None:
     parser.add_argument("--dom-name", default="dom-elements.json")
     parser.add_argument("--max-position-delta", type=int, default=6, help="Max allowed |dx|/|dy| in px")
     parser.add_argument("--max-size-delta", type=int, default=10, help="Max allowed |dw|/|dh| in px")
+    parser.add_argument("--max-font-size-delta", type=float, default=1.0, help="Max allowed font-size delta in px")
+    parser.add_argument("--max-font-weight-delta", type=int, default=0, help="Max allowed numeric weight delta (0 = exact)")
+    parser.add_argument("--max-color-delta", type=int, default=8, help="Max allowed per-channel RGB delta (0-255)")
+    parser.add_argument("--max-line-height-delta", type=float, default=2.0, help="Max allowed line-height delta in px")
+    parser.add_argument("--max-letter-spacing-delta", type=float, default=0.5, help="Max allowed letter-spacing delta in px")
+    parser.add_argument("--max-radius-delta", type=float, default=2.0, help="Max allowed border-radius delta in px")
     parser.add_argument("--json-name", default="element-verification.json")
     parser.add_argument("--md-name", default="element-verification.md")
     args = parser.parse_args()

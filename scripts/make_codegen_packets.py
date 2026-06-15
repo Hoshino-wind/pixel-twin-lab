@@ -47,6 +47,15 @@ component using **only** `packet.json` in this directory.
 9. When an element has `requires_asset: true`, render that visual as an image/asset slot
    using its `asset_path`; do not replace it with a hand-drawn approximation. These paths
    point to measured element crops, not to the original reference screenshot.
+10. **Composite typography & per-element style (element style contract).** When an element
+   carries `runs`, render one node per run in order, each carrying `data-run="<element-id>.<index>"`,
+   and apply that run's `style.expected` via tokens — a value like "128 kg CO2e" is NOT one
+   flat string at one size; it is number + unit + suffix, each with its own size/weight, and
+   the suffix uses `vertical_align: sub`/`super` so it does not overflow-clip. When an element
+   carries `style`, apply `style.expected` via tokens. Set font-size/weight/color EXPLICITLY
+   from the contract — never rely on a tag's browser default (e.g. `<strong>` = 700), which is
+   exactly the leak that bolds and clips composite values. verify_elements.py asserts each
+   run/element style against the rendered DOM, so an unstyled flat string will fail the gate.
 """
 
 
