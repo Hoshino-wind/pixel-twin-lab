@@ -21,7 +21,7 @@ from typing import Any
 
 REGION_FIELDS = ("name", "bounds", "role", "track", "parent", "notes")
 RELATION_FIELDS = ("scope", "type", "items", "gap_px", "columns", "align", "confidence", "notes")
-COMPONENT_FIELDS = ("id", "region", "type", "bounds", "content", "maps_to", "elements", "notes")
+COMPONENT_FIELDS = ("id", "region", "category", "type", "bounds", "content", "maps_to", "elements", "notes")
 ELEMENT_FIELDS = ("id", "type", "bounds", "content", "token_refs")
 INTERACTION_FIELDS = ("target", "trigger", "behavior", "states", "source", "notes")
 DATA_FIELDS = ("component_id", "shape", "fields", "mock_data", "binding", "source", "library", "notes")
@@ -558,11 +558,10 @@ def main() -> None:
         "layout": layout,
         "components": components,
         "tokens": tokens,
+        "data": data_entries,
         "interactions": interactions,
         "implementation": implementation,
     }
-    if data_entries:
-        blueprint["data"] = data_entries
 
     summary = {
         "fragments": len(fragments),

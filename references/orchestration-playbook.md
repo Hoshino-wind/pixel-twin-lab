@@ -37,9 +37,11 @@ the files in <lab>/packets/regions/<region>/ — do not open the full reference 
 1. Read INSTRUCTIONS.md, crop.png (this region's reference crop), measurements.json (measured
    boxes in absolute reference coordinates), and tokens.json (extracted color/type tokens).
 2. Fill fragment.template.json and save it as fragment.json in the same directory:
-   - components: every visible component in this region. Use the schema component types. id must
-     start with "<region>-". bounds must come from measurements.json, not estimation. content must
-     transcribe the actual text in the crop. maps_to: leave "" unless instructed otherwise.
+   - components: every visible component in this region. Use the schema component types and
+     Ant Design-inspired category taxonomy (`general`, `layout`, `navigation`, `data-entry`,
+     `data-display`, `feedback`, `other`, `custom`). id must start with "<region>-". bounds
+     must come from measurements.json, not estimation. content must transcribe the actual text
+     in the crop. maps_to: leave "" unless instructed otherwise.
    - elements: fine-grained children (text/icon/control/...) with measured bounds and token_refs
      pointing at tokens.json names or your token_proposals.
    - interactions: one entry per interactive component (button/input/select/tabs/checkbox/switch

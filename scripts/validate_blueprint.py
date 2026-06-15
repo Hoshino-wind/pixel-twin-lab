@@ -28,11 +28,38 @@ REGION_TRACKS = {"component", "island", "approximation"}
 RELATION_TYPES = {"row", "column", "grid", "stack", "absolute-fallback"}
 RELATION_ALIGNS = {"start", "center", "end", "stretch", "space-between"}
 COMPONENT_TYPES = {
-    "button", "input", "select", "checkbox", "switch", "tabs", "tab-item", "menu",
-    "menu-item", "card", "table", "table-row", "list", "list-item", "badge", "avatar",
-    "icon", "image", "text", "heading", "divider", "progress", "chart-container",
-    "map-container", "media", "nav-item", "breadcrumb", "pagination", "tooltip-anchor",
-    "container", "other",
+    "affix", "alert", "anchor", "app", "auto-complete", "avatar", "badge", "breadcrumb",
+    "button", "calendar", "card", "carousel", "cascader", "checkbox", "collapse",
+    "color-picker", "config-provider", "date-picker", "descriptions", "divider", "drawer",
+    "dropdown", "empty", "flex", "float-button", "form", "grid", "icon", "image", "input",
+    "input-number", "layout", "list", "mentions", "menu", "message", "modal", "notification",
+    "pagination", "popconfirm", "popover", "progress", "qr-code", "radio", "rate", "result",
+    "segmented", "select", "skeleton", "slider", "space", "spin", "splitter", "statistic",
+    "steps", "switch", "table", "tabs", "tag", "time-picker", "timeline", "tooltip", "tour",
+    "transfer", "tree", "tree-select", "typography", "upload", "watermark",
+    "chart-container", "map-container", "media", "heading", "text", "nav-item", "menu-item",
+    "tab-item", "table-row", "list-item", "tooltip-anchor", "container", "other",
+}
+COMPONENT_CATEGORIES = {"general", "layout", "navigation", "data-entry", "data-display", "feedback", "other", "custom"}
+COMPONENT_CATEGORY_BY_TYPE = {
+    **{name: "general" for name in {"button", "float-button", "icon", "typography"}},
+    **{name: "layout" for name in {"divider", "flex", "grid", "layout", "space"}},
+    **{name: "navigation" for name in {"anchor", "breadcrumb", "dropdown", "menu", "pagination", "steps"}},
+    **{name: "data-entry" for name in {
+        "auto-complete", "cascader", "checkbox", "color-picker", "date-picker", "form",
+        "input", "input-number", "mentions", "radio", "rate", "select", "slider", "switch",
+        "time-picker", "transfer", "tree-select", "upload",
+    }},
+    **{name: "data-display" for name in {
+        "avatar", "badge", "calendar", "card", "carousel", "collapse", "descriptions", "empty",
+        "image", "list", "popover", "qr-code", "segmented", "statistic", "table", "tabs",
+        "tag", "timeline", "tooltip", "tour", "tree",
+    }},
+    **{name: "feedback" for name in {
+        "alert", "drawer", "message", "modal", "notification", "popconfirm", "progress",
+        "result", "skeleton", "spin", "watermark",
+    }},
+    **{name: "other" for name in {"affix", "app", "config-provider", "splitter"}},
 }
 ELEMENT_TYPES = {
     "text", "icon", "image", "control", "list-item", "card", "divider", "badge",
@@ -46,7 +73,12 @@ INTERACTION_TRIGGERS = {
 INTERACTION_STATES = {"hover", "active", "focus", "disabled", "selected", "loading", "empty", "error"}
 INTERACTION_SOURCES = {"project-convention", "project-token", "type-default"}
 PLAN_ACTIONS = {"reuse", "extend", "create"}
-INTERACTIVE_COMPONENT_TYPES = {"button", "input", "select", "tabs", "checkbox", "switch"}
+INTERACTIVE_COMPONENT_TYPES = {
+    "auto-complete", "button", "cascader", "checkbox", "color-picker", "date-picker",
+    "dropdown", "float-button", "form", "input", "input-number", "mentions", "pagination",
+    "radio", "rate", "select", "slider", "steps", "switch", "tabs", "time-picker", "transfer",
+    "tree-select", "upload",
+}
 DATA_SHAPES = {"rows", "items", "series", "keyvalue", "tree", "geo"}
 DATA_SOURCES = {"extracted", "approximated"}
 # Component types that must be data-driven: a missing data entry means codegen would
@@ -294,8 +326,8 @@ def validate_components(log: IssueLog, blueprint: dict[str, Any], regions: dict[
         return components
     for index, component in enumerate(raw):
         path = f"components[{index}]"
-        if not check_object(log, "components", path, component, ["id", "region", "type", "bounds"],
-                            {"id", "region", "type", "bounds", "content", "maps_to", "elements", "notes"}):
+        if not check_object(log, "components", path, component, ["id", "region", "category", "type", "bounds"],
+                            {"id", "region", "category", "type", "bounds", "content", "maps_to", "elements", "notes"}):
             continue
         component_id = component.get("id")
         if "id" in component and check_kebab(log, "components", path, "id", component_id):
@@ -303,6 +335,20 @@ def validate_components(log: IssueLog, blueprint: dict[str, Any], regions: dict[
                 log.error("components", path, f"duplicate component id '{component_id}'")
         if "type" in component:
             check_enum(log, "components", path, "type", component.get("type"), COMPONENT_TYPES, True)
+        if "category" in component:
+            check_enum(log, "components", path, "category", component.get("category"), COMPONENT_CATEGORIES, False)
+        expected_category = COMPONENT_CATEGORY_BY_TYPE.get(str(component.get("type") or ""))
+        if (
+            expected_category
+            and component.get("category") in COMPONENT_CATEGORIES
+            and component.get("category") != expected_category
+        ):
+            log.warning(
+                "components",
+                path,
+                f"type '{component.get('type')}' usually belongs to category '{expected_category}', "
+                f"got '{component.get('category')}'",
+            )
         bounds = check_bounds(log, "components", f"{path}.bounds", component.get("bounds")) if "bounds" in component else None
         region_name = component.get("region")
         if "region" in component:
@@ -857,8 +903,8 @@ def main() -> None:
         blueprint = {}
 
     # --- Layer A: structure ---
-    required_top = ["version", "source", "layout", "components", "tokens", "interactions", "implementation"]
-    allowed_top = set(required_top) | {"generated_at", "data"}
+    required_top = ["version", "source", "layout", "components", "tokens", "data", "interactions", "implementation"]
+    allowed_top = set(required_top) | {"generated_at"}
     for key in required_top:
         if key not in blueprint:
             log.error("root", "$", f"missing required field '{key}'")

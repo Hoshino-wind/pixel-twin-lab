@@ -264,6 +264,13 @@ def build_report(out_dir: Path, recovery_dir: str, allowed_tracks: set[str], tar
     metrics = metric_regions(rebuilt)
     all_names = sorted(set(named_regions) | set(ledger) | set(metrics))
     dom = dom_summary(out_dir)
+    gate = load_json(out_dir / "fidelity-gate.json", {})
+    semantic = gate.get("component_semantic_evidence") if isinstance(gate, dict) else {}
+    semantic_failures = {
+        str(item.get("name")): item
+        for item in (semantic.get("failures") if isinstance(semantic, dict) else []) or []
+        if isinstance(item, dict) and item.get("name")
+    }
 
     items: list[dict[str, Any]] = []
     for name in all_names:
@@ -293,7 +300,16 @@ def build_report(out_dir: Path, recovery_dir: str, allowed_tracks: set[str], tar
             "ledger_reason": (ledger_region or {}).get("reason"),
             "primitive_targets": primitive_hints(name, track),
             "next_actions": next_actions(role, name, as_float(strict), as_float(tolerant)),
+            "semantic_failure": semantic_failures.get(name),
         }
+        if role == "component-required" and name in semantic_failures:
+            collection_hint = "collection/list template with data-element-item rows"
+            if collection_hint not in item["primitive_targets"]:
+                item["primitive_targets"].insert(0, collection_hint)
+            item["next_actions"].insert(
+                1,
+                "Promote loose measured primitives into a data-driven collection/table/list component contract.",
+            )
         items.append(item)
 
     def sort_key(item: dict[str, Any]) -> tuple[int, int, float, float]:
@@ -329,6 +345,8 @@ def build_report(out_dir: Path, recovery_dir: str, allowed_tracks: set[str], tar
             "component_required_count": len(component_items),
             "approved_island_count": len(approved_islands),
             "disallowed_asset_count": len(disallowed_assets),
+            "component_semantic_failure_count": len(semantic_failures),
+            "component_semantic_failure_regions": sorted(semantic_failures),
             "worst_component_regions": [item["name"] for item in component_items[:8]],
         },
         "dom_evidence": dom,
@@ -354,6 +372,7 @@ def markdown(report: dict[str, Any]) -> str:
         f"- component-required regions: `{summary['component_required_count']}`",
         f"- approved islands: `{summary['approved_island_count']}`",
         f"- disallowed asset regions: `{summary['disallowed_asset_count']}`",
+        f"- component semantic failures: `{summary.get('component_semantic_failure_count', 0)}`",
         "",
         "## Worklist",
         "",
@@ -385,8 +404,16 @@ def markdown(report: dict[str, Any]) -> str:
             f"- asset: `{item['asset']}`; provider: `{item['asset_provider']}`; strategy: `{item['asset_strategy']}`",
             f"- primitives: {', '.join(item['primitive_targets'])}",
             f"- next: {'; '.join(item['next_actions'])}",
-            "",
+        "",
         ]
+        if item.get("semantic_failure"):
+            failure = item["semantic_failure"]
+            lines.insert(
+                -1,
+                f"- semantic: missing `{failure.get('required')}` evidence "
+                f"(data-element-item={failure.get('data_element_item_count', 0)}, "
+                f"table={failure.get('table_count', 0)}, list_role={failure.get('list_role_count', 0)})",
+            )
 
     island_lines = [item for item in report["regions"] if item["role"] == "approved-island"]
     if island_lines:
@@ -435,6 +462,7 @@ def main() -> None:
                 "component_required_count": report["summary"]["component_required_count"],
                 "approved_island_count": report["summary"]["approved_island_count"],
                 "disallowed_asset_count": report["summary"]["disallowed_asset_count"],
+                "component_semantic_failure_count": report["summary"].get("component_semantic_failure_count", 0),
                 "worst_component_regions": report["summary"]["worst_component_regions"][:5],
             },
             indent=2,

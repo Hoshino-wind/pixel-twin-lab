@@ -48,6 +48,7 @@ def load_regions(out_dir: Path, regions_arg: str) -> list[dict]:
             raise SystemExit(f"Regions file does not exist: {path}")
 
     regions: list[dict] = []
+    seen: set[tuple[str, int, int, int, int]] = set()
     for key, path in sources:
         if not path.exists():
             continue
@@ -55,7 +56,12 @@ def load_regions(out_dir: Path, regions_arg: str) -> list[dict]:
         entries = data if isinstance(data, list) else data.get(key, [])
         for index, entry in enumerate(entries, start=1):
             name = entry.get("name") or Path(str(entry.get("src", f"{key}-{index:02d}"))).stem
-            regions.append({"name": name, **{k: entry[k] for k in ("x", "y", "width", "height")}})
+            region = {"name": name, **{k: int(entry[k]) for k in ("x", "y", "width", "height")}}
+            identity = (str(region["name"]), region["x"], region["y"], region["width"], region["height"])
+            if identity in seen:
+                continue
+            seen.add(identity)
+            regions.append(region)
     return regions
 
 

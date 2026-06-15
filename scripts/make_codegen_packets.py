@@ -18,8 +18,9 @@ component using **only** `packet.json` in this directory.
 
 1. **Do not read the reference image or any lab screenshot.** This isolation is by design,
    not an oversight: every visual fact you are allowed to use has already been measured and
-   written into the blueprint. If information you need is missing from the packet, that is a
-   blueprint defect - report it back to the orchestrator instead of looking at images.
+   written into the blueprint and element manifest. If information you need is missing from
+   the packet, that is a blueprint/element-contract defect - report it back to the
+   orchestrator instead of looking at images.
 2. Generate a component native to the project stack declared in `packet.json` -> `project`
    (framework / styling / ui_library / final_dir). Never paste lab HTML.
 3. The rendered DOM must carry a `data-element` attribute for every element id listed in
@@ -43,6 +44,9 @@ component using **only** `packet.json` in this directory.
    props-driven generic component in the project's stack — content arrives only through
    props/data, styles only through tokens. Do not bake this region's content into the
    component body; the fixture file is what makes this instance render this region.
+9. When an element has `requires_asset: true`, render that visual as an image/asset slot
+   using its `asset_path`; do not replace it with a hand-drawn approximation. These paths
+   point to measured element crops, not to the original reference screenshot.
 """
 
 
@@ -84,11 +88,45 @@ def plan_for(component_id: str, implementation: dict[str, Any]) -> dict[str, Any
     return None
 
 
+def elements_by_region(manifest: dict[str, Any] | None) -> dict[str, list[dict[str, Any]]]:
+    if not isinstance(manifest, dict):
+        return {}
+    by_region: dict[str, list[dict[str, Any]]] = {}
+    for region in manifest.get("regions") or []:
+        if not isinstance(region, dict) or not region.get("name"):
+            continue
+        elements = [element for element in region.get("elements") or [] if isinstance(element, dict)]
+        by_region[str(region["name"])] = elements
+    return by_region
+
+
+def assets_by_id(report: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not isinstance(report, dict):
+        return {}
+    assets: dict[str, dict[str, Any]] = {}
+    for asset in report.get("assets") or []:
+        if isinstance(asset, dict) and asset.get("id"):
+            assets[str(asset["id"])] = asset
+    return assets
+
+
+def elements_for_component(component: dict[str, Any], by_region: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    region = component.get("region")
+    if region is not None and str(region) in by_region:
+        return by_region[str(region)]
+    component_id = component.get("id")
+    if component_id is not None and str(component_id) in by_region:
+        return by_region[str(component_id)]
+    return []
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", required=True, help="Pixel Twin Lab output directory")
     parser.add_argument("--blueprint-name", default="ui-blueprint.json", help="Blueprint filename inside out-dir")
     parser.add_argument("--validation-name", default="blueprint-validation.json", help="Validation report filename inside out-dir")
+    parser.add_argument("--element-manifest-name", default="element-manifest.json", help="Element manifest filename inside out-dir")
+    parser.add_argument("--element-assets-name", default="element-assets.json", help="Element assets filename inside out-dir")
     parser.add_argument("--components", help="Comma-separated component ids to pack")
     args = parser.parse_args()
 
@@ -121,6 +159,10 @@ def main() -> None:
     data_entries = blueprint.get("data") if isinstance(blueprint.get("data"), list) else []
     implementation = blueprint.get("implementation") if isinstance(blueprint.get("implementation"), dict) else {}
     source = blueprint.get("source") if isinstance(blueprint.get("source"), dict) else {}
+    element_manifest = load_optional_json(out_dir / args.element_manifest_name, None)
+    element_assets = load_optional_json(out_dir / args.element_assets_name, None)
+    elements_for_region = elements_by_region(element_manifest)
+    asset_lookup = assets_by_id(element_assets)
 
     contract = load_optional_json(out_dir / "component-contract.json", None)
     project_profile = contract.get("project_profile") if isinstance(contract, dict) else None
@@ -140,9 +182,18 @@ def main() -> None:
         component_id = str(component["id"])
         packet_dir = packets_dir / component_id
         packet_dir.mkdir(parents=True, exist_ok=True)
+        component_elements = elements_for_component(component, elements_for_region)
+        component_assets = []
+        for element in component_elements:
+            asset_id = element.get("asset_id")
+            if asset_id is not None and str(asset_id) in asset_lookup:
+                component_assets.append(asset_lookup[str(asset_id)])
+        component_packet = dict(component)
+        component_packet["elements"] = component_elements
         packet = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "component": component,
+            "component": component_packet,
+            "assets": component_assets,
             "relations": relations_for(component, relations),
             "tokens": tokens,
             "interactions": [

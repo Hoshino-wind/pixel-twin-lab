@@ -74,13 +74,18 @@ Pixel Twin Lab 把这件事变成一条可验证流水线:固定同一个 viewpo
 
 ## 环境要求
 
-- **Python 3**,需要 [Pillow](https://pillow.readthedocs.io/)(必需)和 numpy(推荐——没有 numpy 时脚本会回退到较慢的纯 PIL 路径):
+- **Python 3**,需要 [Pillow](https://pillow.readthedocs.io/) 和 numpy(二者都是必需依赖):
 
   ```bash
   pip install -r scripts/requirements.txt
   ```
 
-- **Node.js**,需要完整的 `playwright` 包(自带 Chromium),或 `playwright-core` 加系统 Chrome/Chromium(macOS/Linux/Windows 自动检测,也可设置 `CHROME_PATH`)。
+- **Node.js**,需要完整的 `playwright` 包(自带 Chromium),或 `playwright-core` 加系统 Chrome/Chromium(macOS/Linux/Windows 自动检测,也可设置 `CHROME_PATH`):
+
+  ```bash
+  npm install
+  npm run install:browsers
+  ```
 
 ## 快速开始
 
@@ -121,6 +126,10 @@ diff 步骤会输出 `pixel-diff-summary.json`(整体及分区域的 mismatch / 
 | `scripts/bootstrap_recovery.py` | 把 triage/planner 结果转成 starter manifest、组件/岛台账、岛图片、骨架 CSS 和中间 React scaffold |
 | `scripts/fidelity_gate.py` | 按 component-only / componentized-islands / approximation / hybrid / placeholder 分类验收,并强制检查零基线和资产覆盖 |
 | `scripts/compare_structure.py` | 对 approximation 区域(第三方图表、地图、3D)做结构比较:原语数量、位置偏移、前景色板 |
+| `scripts/extract_element_assets.py` | 把测量到的图标、头像、缩略图、卡片媒体、突出导航主控件、KPI sparkline/进度条片段、时间线 marker 条、保守的彩色连通块图标/插画和已路由的岛/近似区域提升为 `element-assets.json` 与裁剪资产 |
+| `scripts/extract_text_elements.py` | 用高置信 OCR 抽取文字行,包含按 region 放大 OCR 和冗余合并行剪枝,写入 `text-elements.json`,可合并进 `element-manifest.json` 作为可验证 text 元素 |
+| `scripts/init_element_manifest.py` | 从 measured primitives 生成元素 manifest,并合并 `element-assets.json`;重跑时清理过期资产引用,卡片内媒体图保持独立 image 元素,避免被拉伸到整张卡片 primitive |
+| `scripts/materialize_element_manifest_lab.py` | 用 element manifest 物化诊断用 rebuilt 层,按 DOM `<img>` 消费声明过的元素资产,透明化 OCR/asset 已覆盖的旧占位块,把嵌套父容器渲染成无边框背景填充,并为 chip/button 推断保守的文本/组级控件壳层 |
 | `scripts/init_component_flow.py` | 针对目标项目初始化组件化运行(contract、map、ledger) |
 
 ## 作为 agent skill 使用
@@ -137,6 +146,7 @@ SKILL.md                  Agent 运行时入口(决策规则、工作流、输�
 SKILL.zh-CN.md            SKILL.md 的中文镜像
 scripts/                  Python/Node 工具(prepare、capture、diff、组件化初始化)
 references/               完整组件化工作流文档(英文 + 中文)
+references/component-taxonomy.md  参考 Ant Design 的组件分类/类型表
 assets/prototype-template 工作台 HTML/CSS/JS 模板
 agents/openai.yaml        仅供 Codex 的接口描述文件
 ```

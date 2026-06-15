@@ -4,7 +4,7 @@
   "title": "UI Blueprint",
   "description": "Machine-readable six-layer decomposition of a UI reference image: visual layout, component semantics, design tokens, data content, interaction behavior, and project implementation. The blueprint is authored by the model but every layer must be reconcilable against measurements (validate_blueprint.py). Code generation reads this file, never the raw image.",
   "type": "object",
-  "required": ["version", "source", "layout", "components", "tokens", "interactions", "implementation"],
+  "required": ["version", "source", "layout", "components", "tokens", "data", "interactions", "implementation"],
   "additionalProperties": false,
   "properties": {
     "version": { "const": 1 },
@@ -77,13 +77,17 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "region", "type", "bounds"],
+          "required": ["id", "region", "category", "type", "bounds"],
         "additionalProperties": false,
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
           "region": { "type": "string" },
+          "category": {
+            "enum": ["general", "layout", "navigation", "data-entry", "data-display", "feedback", "other", "custom"],
+            "description": "Ant Design-inspired component category. Use custom for project-specific composites."
+          },
           "type": {
-            "enum": ["button", "input", "select", "checkbox", "switch", "tabs", "tab-item", "menu", "menu-item", "card", "table", "table-row", "list", "list-item", "badge", "avatar", "icon", "image", "text", "heading", "divider", "progress", "chart-container", "map-container", "media", "nav-item", "breadcrumb", "pagination", "tooltip-anchor", "container", "other"]
+            "enum": ["affix", "alert", "anchor", "app", "auto-complete", "avatar", "badge", "breadcrumb", "button", "calendar", "card", "carousel", "cascader", "checkbox", "collapse", "color-picker", "config-provider", "date-picker", "descriptions", "divider", "drawer", "dropdown", "empty", "flex", "float-button", "form", "grid", "icon", "image", "input", "input-number", "layout", "list", "mentions", "menu", "message", "modal", "notification", "pagination", "popconfirm", "popover", "progress", "qr-code", "radio", "rate", "result", "segmented", "select", "skeleton", "slider", "space", "spin", "splitter", "statistic", "steps", "switch", "table", "tabs", "tag", "time-picker", "timeline", "tooltip", "tour", "transfer", "tree", "tree-select", "typography", "upload", "watermark", "chart-container", "map-container", "media", "heading", "text", "nav-item", "menu-item", "tab-item", "table-row", "list-item", "tooltip-anchor", "container", "other"]
           },
           "bounds": { "$ref": "#/definitions/bounds" },
           "content": { "type": "string", "description": "Extracted text for text-bearing components; semantic description otherwise" },

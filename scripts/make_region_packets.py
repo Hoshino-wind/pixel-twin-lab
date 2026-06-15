@@ -33,8 +33,15 @@ you have no access to the rest of the reference image, and you must not ask for 
    `region_bounds` is crop-local) - use it as your coordinate reference.
 2. Every component `id` must start with the `{name}-` prefix, use only `[a-z0-9-]`,
    and set `"region": "{name}"`. Component entries must follow the ui-blueprint schema
-   exactly: required `id`, `region`, `type`, `bounds`; optional `content`, `maps_to`,
-   `elements` (each element: `id`, `type`, `bounds`, optional `content`, `token_refs`), `notes`.
+   exactly: required `id`, `region`, `category`, `type`, `bounds`; optional `content`,
+   `maps_to`, `elements` (each element: `id`, `type`, `bounds`, optional `content`,
+   `token_refs`), `notes`.
+   Use the Ant Design-inspired category/type taxonomy: category is one of `general`,
+   `layout`, `navigation`, `data-entry`, `data-display`, `feedback`, `other`, `custom`.
+   Prefer AntD archetypes such as `button`, `form`, `select`, `table`, `tabs`, `tag`,
+   `modal`, `steps`, `statistic`, `descriptions`, `timeline`, `tree`, and `upload`;
+   use Pixel Twin custom types such as `chart-container`, `map-container`, `nav-item`,
+   `table-row`, `list-item`, `container`, or `other` when no AntD archetype fits.
 3. Every interactive component type (`button`, `input`, `select`, `tabs`, `checkbox`,
    `switch`) must have at least one entry in `interactions` with required fields
    `target`, `trigger`, `behavior`, `source` - and `source` must be declared as one of

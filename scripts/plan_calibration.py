@@ -47,6 +47,7 @@ AA_BIG_DELTA_FRACTION = 0.005
 NOT_BUILT_MIN_MISMATCH_PCT = 50.0
 NOT_BUILT_MAX_STD = 6.0
 NOT_BUILT_MIN_REF_STD = 10.0
+MIXED_COMPONENT_KEYWORDS = ("recommendation", "card-list", "media-list", "feed")
 
 
 def hex_color(rgb: tuple[float, float, float]) -> str:
@@ -173,6 +174,11 @@ def dominant_color(image: Image.Image) -> str:
     return hex_color(color)
 
 
+def is_mixed_media_component_region(region: dict) -> bool:
+    name = str(region.get("name") or "").lower()
+    return any(keyword in name for keyword in MIXED_COMPONENT_KEYWORDS)
+
+
 def classify(region: dict, ref: Image.Image, cap: Image.Image, shift_radius: int, tolerance: int) -> dict:
     ref_crop = crop(ref, region)
     cap_crop = crop(cap, region)
@@ -204,6 +210,14 @@ def classify(region: dict, ref: Image.Image, cap: Image.Image, shift_radius: int
         complexity["edge_density"] >= ISLAND_EDGE_DENSITY
         or complexity["color_count"] >= ISLAND_COLOR_COUNT
     ):
+        if is_mixed_media_component_region(region):
+            result["classification"] = "rebuild"
+            result["evidence"] = {**complexity, "mixed_component": True}
+            result["action"] = (
+                "Mixed media component region; keep photos/icons as local assets but rebuild "
+                "the card/list shell, text, and controls instead of making the whole region a slice island."
+            )
+            return result
         result["classification"] = "slice-island"
         result["evidence"] = complexity
         result["action"] = (

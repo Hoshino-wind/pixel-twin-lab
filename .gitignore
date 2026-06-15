@@ -4,3 +4,5 @@ work/
 .claude/settings.local.json
 **/node_modules/
 calibration-targets/
+
+testpng/

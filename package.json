@@ -1,0 +1,16 @@
+{
+  "name": "pixel-twin-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pixel Twin Lab screenshot backtesting and componentization skill tools.",
+  "scripts": {
+    "install:browsers": "playwright install chromium",
+    "smoke": "python3 scripts/smoke_workflow.py"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  },
+  "dependencies": {
+    "echarts": "^6.1.0"
+  }
+}

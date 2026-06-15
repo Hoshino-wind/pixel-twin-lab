@@ -60,6 +60,255 @@ def strategy_from_dom(index_html: str) -> list[dict[str, str]]:
     return regions
 
 
+def declared_asset_context(index_html: str, position: int, attrs: dict[str, str]) -> bool:
+    if attrs.get("data-has-asset") == "true" or attrs.get("data-asset-provider") not in (None, "", "none"):
+        return True
+    if "data-element-asset-id" in attrs or "data-pixel-twin-element-asset-overlay" in attrs:
+        return True
+    for tag in ("span", "button", "a", "div", "section"):
+        last_open = index_html.rfind(f"<{tag}", 0, position)
+        last_close = index_html.rfind(f"</{tag}>", 0, position)
+        if last_open <= last_close:
+            continue
+        tag_end = index_html.find(">", last_open)
+        if tag_end == -1 or tag_end > position:
+            continue
+        ancestor_attrs = parse_attrs(index_html[last_open : tag_end + 1])
+        if "data-element-asset-id" in ancestor_attrs or "data-pixel-twin-element-asset-overlay" in ancestor_attrs:
+            return True
+    last_section = index_html.rfind("<section", 0, position)
+    last_section_close = index_html.rfind("</section>", 0, position)
+    if last_section <= last_section_close:
+        return False
+    section_end = index_html.find(">", last_section)
+    if section_end == -1 or section_end > position:
+        return False
+    section_attrs = parse_attrs(index_html[last_section : section_end + 1])
+    return (
+        section_attrs.get("data-has-asset") == "true"
+        or section_attrs.get("data-asset-provider") not in (None, "", "none")
+        or "data-asset-strategy" in section_attrs
+    )
+
+
+def collect_element_asset_evidence(out_dir: Path, index_html: str) -> dict[str, Any]:
+    assets_path = out_dir / "element-assets.json"
+    assets_report = load_json(assets_path, {})
+    assets = assets_report.get("assets") if isinstance(assets_report, dict) else None
+    if not isinstance(assets, list):
+        assets = []
+
+    type_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    asset_ids: set[str] = set()
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        asset_id = str(asset.get("id") or "")
+        if asset_id:
+            asset_ids.add(asset_id)
+        asset_type = str(asset.get("asset_type") or "asset")
+        source = str(asset.get("source") or "unknown")
+        type_counts[asset_type] = type_counts.get(asset_type, 0) + 1
+        source_counts[source] = source_counts.get(source, 0) + 1
+
+    manifest_path = out_dir / "element-manifest.json"
+    manifest = load_json(manifest_path, {})
+    required_asset_ids: set[str] = set()
+    required_asset_elements = 0
+    manifest_elements = 0
+    if isinstance(manifest, dict):
+        for region in manifest.get("regions") or []:
+            if not isinstance(region, dict):
+                continue
+            for element in region.get("elements") or []:
+                if not isinstance(element, dict):
+                    continue
+                manifest_elements += 1
+                if element.get("requires_asset") or element.get("asset_path") or element.get("asset_id"):
+                    required_asset_elements += 1
+                    asset_id = str(element.get("asset_id") or "")
+                    if asset_id:
+                        required_asset_ids.add(asset_id)
+
+    dom_ids = set(re.findall(r'data-element-asset-id="([^"]+)"', index_html))
+    overlay_blocks = re.findall(
+        r'data-pixel-twin-element-asset-overlay[^>]*>[\s\S]*?</div>',
+        index_html,
+        flags=re.IGNORECASE,
+    )
+    overlay_ids: set[str] = set()
+    for block in overlay_blocks:
+        overlay_ids.update(re.findall(r'data-element-asset-id="([^"]+)"', block))
+    rendered_ids = dom_ids - overlay_ids
+
+    missing_manifest_assets = sorted(required_asset_ids - asset_ids)
+    missing_rendered_assets = sorted(required_asset_ids - rendered_ids)
+    return {
+        "source": str(assets_path) if assets_path.exists() else None,
+        "manifest_source": str(manifest_path) if manifest_path.exists() else None,
+        "asset_count": len(assets),
+        "asset_type_counts": type_counts,
+        "asset_source_counts": source_counts,
+        "manifest_element_count": manifest_elements,
+        "required_asset_element_count": required_asset_elements,
+        "required_asset_ids": sorted(required_asset_ids),
+        "missing_manifest_asset_ids": missing_manifest_assets,
+        "dom_asset_count": len(dom_ids),
+        "overlay_dom_asset_count": len(overlay_ids),
+        "rendered_dom_asset_count": len(rendered_ids),
+        "rendered_dom_asset_ids": sorted(rendered_ids),
+        "missing_rendered_asset_ids": missing_rendered_assets,
+        "overlay_present": bool(overlay_blocks),
+        "pass": bool(required_asset_ids) and not missing_manifest_assets and not missing_rendered_assets,
+        "reason": (
+            "required element assets are present in the manifest and rendered as non-overlay DOM assets"
+            if required_asset_ids and not missing_manifest_assets and not missing_rendered_assets
+            else (
+                "no element manifest asset requirements declared"
+                if not required_asset_ids
+                else "some required element assets are missing from the asset ledger or rendered DOM"
+            )
+        ),
+    }
+
+
+def region_section_blocks(index_html: str) -> dict[str, str]:
+    blocks: dict[str, str] = {}
+    pattern = re.compile(r"<section\b(?=[^>]*\bpt-region\b)([^>]*)>([\s\S]*?)</section>", re.IGNORECASE)
+    for match in pattern.finditer(index_html):
+        attrs = parse_attrs(match.group(1))
+        name = attrs.get("aria-label")
+        if name:
+            blocks[name] = match.group(2)
+    return blocks
+
+
+def semantic_track_lookup(ledger: dict[str, Any]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    if isinstance(ledger, dict):
+        for region in ledger.get("regions") or []:
+            if isinstance(region, dict) and region.get("name") and region.get("track"):
+                lookup[str(region["name"])] = str(region["track"])
+    return lookup
+
+
+def collection_semantic_required(name: str) -> bool:
+    lowered = name.lower()
+    if lowered.startswith("kpi-"):
+        return False
+    return any(
+        token in lowered
+        for token in (
+            "audit",
+            "bottom-nav",
+            "checklist",
+            "deployment",
+            "incident",
+            "itinerary",
+            "packing",
+            "queue",
+            "recommendation",
+            "regional-health",
+            "runbook",
+            "sidebar",
+            "table",
+            "timeline",
+        )
+    )
+
+
+def collect_component_semantic_evidence(out_dir: Path, index_html: str, ledger: dict[str, Any]) -> dict[str, Any]:
+    manifest = load_json(out_dir / "element-manifest.json", {})
+    regions = manifest.get("regions") if isinstance(manifest, dict) else []
+    if not isinstance(regions, list):
+        regions = []
+    sections = region_section_blocks(index_html)
+    tracks = semantic_track_lookup(ledger)
+    checked: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for region in regions:
+        if not isinstance(region, dict) or not region.get("name"):
+            continue
+        name = str(region["name"])
+        track = tracks.get(name, str(region.get("track") or "component"))
+        if track != "component" or not collection_semantic_required(name):
+            continue
+        block = sections.get(name, "")
+        evidence = {
+            "data_element_item_count": len(re.findall(r"\bdata-element-item=", block)),
+            "table_count": len(re.findall(r"<table\b", block, flags=re.IGNORECASE)),
+            "list_role_count": len(re.findall(r'role="(?:list|listitem|row|grid)"', block, flags=re.IGNORECASE)),
+            "collection_kind_count": len(re.findall(r'data-kind="[^"]*collection[^"]*"', block, flags=re.IGNORECASE)),
+        }
+        ok = any(value > 0 for value in evidence.values())
+        item = {"name": name, "track": track, "required": "collection", "pass": ok, **evidence}
+        checked.append(item)
+        if not ok:
+            failures.append(item)
+    return {
+        "source": str(out_dir / "element-manifest.json") if (out_dir / "element-manifest.json").exists() else None,
+        "checked_region_count": len(checked),
+        "failure_count": len(failures),
+        "checked_regions": checked,
+        "failures": failures,
+        "pass": len(failures) == 0,
+        "reason": (
+            "collection-like component regions have collection/table/list DOM evidence"
+            if not failures
+            else "collection-like component regions are rendered as loose primitives instead of data-driven collections"
+        ),
+    }
+
+
+def collect_undeclared_bitmap_evidence(out_dir: Path, index_html: str) -> dict[str, Any]:
+    """Find bitmap-like DOM/CSS evidence that is not tied to the recovery asset ledger.
+
+    The component gates are only meaningful when images are declared as region-scoped
+    assets or represented as addressable DOM elements. A plain full-page <img>, or a
+    CSS background image, otherwise looks like a no-asset component pass to metrics.
+    """
+    items: list[dict[str, str]] = []
+    for match in re.finditer(r"<img\b[^>]*>", index_html, re.IGNORECASE):
+        tag = match.group(0)
+        attrs = parse_attrs(tag)
+        class_name = attrs.get("class", "")
+        src = attrs.get("src", "")
+        if "reference-layer" in class_name:
+            continue
+        if declared_asset_context(index_html, match.start(), attrs):
+            continue
+        items.append({"kind": "img", "source": "index.html", "src": src or "unknown"})
+
+    background_pattern = re.compile(r"background(?:-image)?\s*:[^;{}]*url\(([^)]*)\)", re.IGNORECASE)
+    sources = [("index.html", index_html)]
+    styles_path = out_dir / "styles.css"
+    if styles_path.exists():
+        sources.append(("styles.css", styles_path.read_text(encoding="utf-8", errors="ignore")))
+    for source_name, text in sources:
+        for match in background_pattern.finditer(text):
+            url = match.group(1).strip("\"' ")
+            if not url:
+                continue
+            if source_name == "styles.css":
+                selector_start = text.rfind("}", 0, match.start()) + 1
+                selector_end = text.rfind("{", 0, match.start())
+                selector = text[selector_start:selector_end] if selector_end >= selector_start else ""
+                if ".pt-background-patch--" in selector:
+                    continue
+            items.append({"kind": "css-background", "source": source_name, "src": url})
+    return {
+        "count": len(items),
+        "items": items,
+        "pass": len(items) == 0,
+        "reason": (
+            "no undeclared bitmap DOM/CSS evidence found"
+            if not items
+            else "bitmap images must be declared as region-scoped assets or rebuilt as DOM elements"
+        ),
+    }
+
+
 def collect_asset_evidence(out_dir: Path, ledger: dict[str, Any], ledger_path: Path) -> dict[str, Any]:
     index_path = out_dir / "index.html"
     if index_path.exists():
@@ -387,6 +636,53 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- problem: {problem}")
     for item in (coverage.get("measured_regions") or [])[:10]:
         lines.append(f"- `{item.get('name')}` ({item.get('track')}): {item.get('area_pct')}% of page")
+    bitmap = report.get("undeclared_bitmap_evidence") or {}
+    lines += [
+        "",
+        "## Undeclared Bitmap Evidence",
+        "",
+        f"- result: `{'PASS' if bitmap.get('pass') else 'FAIL'}`",
+        f"- {bitmap.get('reason', 'not checked')}",
+    ]
+    for item in bitmap.get("items") or []:
+        lines.append(f"- `{item.get('kind')}` in `{item.get('source')}`: `{item.get('src')}`")
+    element_assets = report.get("element_asset_evidence") or {}
+    lines += [
+        "",
+        "## Element Asset Evidence",
+        "",
+        f"- result: `{'PASS' if element_assets.get('pass') else 'FAIL'}`",
+        f"- {element_assets.get('reason', 'not checked')}",
+        f"- source: `{element_assets.get('source') or 'none'}`",
+        f"- manifest_source: `{element_assets.get('manifest_source') or 'none'}`",
+        f"- asset_count: `{element_assets.get('asset_count', 0)}`",
+        f"- asset_type_counts: `{element_assets.get('asset_type_counts', {})}`",
+        f"- required_asset_element_count: `{element_assets.get('required_asset_element_count', 0)}`",
+        f"- rendered_dom_asset_count: `{element_assets.get('rendered_dom_asset_count', 0)}`",
+        f"- overlay_dom_asset_count: `{element_assets.get('overlay_dom_asset_count', 0)}`",
+    ]
+    if element_assets.get("overlay_present"):
+        lines.append("- overlay diagnostic layer detected; this is evidence only, not componentized success")
+    for asset_id in element_assets.get("missing_manifest_asset_ids") or []:
+        lines.append(f"- missing asset ledger entry: `{asset_id}`")
+    for asset_id in element_assets.get("missing_rendered_asset_ids") or []:
+        lines.append(f"- missing rendered DOM asset: `{asset_id}`")
+    semantic = report.get("component_semantic_evidence") or {}
+    lines += [
+        "",
+        "## Component Semantic Evidence",
+        "",
+        f"- result: `{'PASS' if semantic.get('pass') else 'FAIL'}`",
+        f"- {semantic.get('reason', 'not checked')}",
+        f"- checked_region_count: `{semantic.get('checked_region_count', 0)}`",
+        f"- failure_count: `{semantic.get('failure_count', 0)}`",
+    ]
+    for item in semantic.get("failures") or []:
+        lines.append(
+            f"- `{item.get('name')}` missing `{item.get('required')}` evidence "
+            f"(data-element-item={item.get('data_element_item_count', 0)}, "
+            f"table={item.get('table_count', 0)}, list_role={item.get('list_role_count', 0)})"
+        )
     component_track = report.get("component_track") or {}
     approximations = report.get("approximation_regions") or []
     if approximations:
@@ -542,10 +838,25 @@ def main() -> None:
             ledger.setdefault("regions", [])
             if isinstance(ledger["regions"], list):
                 ledger["regions"].extend(extra)
+    index_path = out_dir / "index.html"
+    index_html = index_path.read_text(encoding="utf-8", errors="ignore") if index_path.exists() else ""
     asset_evidence = collect_asset_evidence(out_dir, ledger, ledger_path)
+    element_asset_evidence = collect_element_asset_evidence(out_dir, index_html)
+    component_semantic_evidence = collect_component_semantic_evidence(out_dir, index_html, ledger)
+    undeclared_bitmap_evidence = collect_undeclared_bitmap_evidence(out_dir, index_html)
     generated_assets = int(asset_evidence["generated_asset_count"])
     placeholder_assets = int(asset_evidence["asset_strategy_counts"].get("placeholder", 0))
     image2_assets = int(asset_evidence["asset_strategy_counts"].get("image2-extract", 0))
+    element_asset_count = int(element_asset_evidence.get("asset_count") or 0)
+    required_element_asset_count = int(element_asset_evidence.get("required_asset_element_count") or 0)
+    rendered_element_asset_count = int(element_asset_evidence.get("rendered_dom_asset_count") or 0)
+    overlay_element_asset_count = int(element_asset_evidence.get("overlay_dom_asset_count") or 0)
+    element_assets_absent = (
+        element_asset_count == 0
+        and required_element_asset_count == 0
+        and rendered_element_asset_count == 0
+        and overlay_element_asset_count == 0
+    )
     allowed_tracks = {track.strip() for track in args.allowed_asset_tracks.split(",") if track.strip()}
     disallowed_assets = bad_asset_regions(asset_evidence, allowed_tracks)
 
@@ -614,8 +925,24 @@ def main() -> None:
         )
 
     metric_pass = baseline_ok and strict_mismatch <= target_mismatch
-    component_only_pass = metric_pass and generated_assets == 0 and element_ok is not False
-    componentized_islands_pass = metric_pass and not disallowed_assets and coverage_ok and element_ok is not False
+    bitmap_ok = bool(undeclared_bitmap_evidence["pass"])
+    semantic_ok = bool(component_semantic_evidence["pass"])
+    component_only_pass = (
+        metric_pass
+        and generated_assets == 0
+        and element_assets_absent
+        and bitmap_ok
+        and element_ok is not False
+        and semantic_ok
+    )
+    componentized_islands_pass = (
+        metric_pass
+        and not disallowed_assets
+        and coverage_ok
+        and bitmap_ok
+        and element_ok is not False
+        and semantic_ok
+    )
     hybrid_pass = metric_pass and image2_assets > 0
     placeholder_contract = placeholder_assets > 0
 
@@ -635,9 +962,11 @@ def main() -> None:
             f"component-track strict match {component_track_match:.4f}% is below {args.target_match:.4f}% "
             "(whole page minus approximation regions)"
         )
-    elif disallowed_assets or not coverage_ok:
+    elif disallowed_assets or not coverage_ok or not bitmap_ok:
         approximation_pass = False
         approximation_reason = "island asset rules failed" + ("" if coverage_ok else f"; {'; '.join(coverage_problems)}")
+        if not bitmap_ok:
+            approximation_reason += "; undeclared bitmap DOM/CSS evidence found"
     elif approximation_failures:
         approximation_pass = False
         names = [item["name"] for item in approximation_failures]
@@ -645,6 +974,9 @@ def main() -> None:
     elif element_ok is False:
         approximation_pass = False
         approximation_reason = f"element contract failed: {element_reason}"
+    elif not semantic_ok:
+        approximation_pass = False
+        approximation_reason = f"component semantic contract failed: {component_semantic_evidence['reason']}"
     else:
         approximation_pass = True
         approximation_reason = (
@@ -655,13 +987,24 @@ def main() -> None:
     baseline_suffix = "" if baseline_ok else f"; {baseline_reason}"
     coverage_suffix = "" if coverage_ok else f"; {'; '.join(coverage_problems)}"
     element_suffix = "" if element_ok is not False else f"; element contract failed: {element_reason}"
+    element_asset_suffix = (
+        ""
+        if element_assets_absent
+        else (
+            "; element asset evidence present "
+            f"(ledger {element_asset_count}, required {required_element_asset_count}, "
+            f"rendered {rendered_element_asset_count}, overlay {overlay_element_asset_count})"
+        )
+    )
+    semantic_suffix = "" if semantic_ok else f"; component semantic contract failed: {component_semantic_evidence['failure_count']} collection-like regions lack collection/table/list DOM evidence"
+    bitmap_suffix = "" if bitmap_ok else "; undeclared bitmap DOM/CSS evidence found"
     gates = {
         "component_only_98": status(
             component_only_pass,
             (
-                f"strict match {strict_match:.4f}% >= {args.target_match:.4f}% with no generated assets"
+                f"strict match {strict_match:.4f}% >= {args.target_match:.4f}% with no generated or element bitmap assets"
                 if component_only_pass
-                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, and generated_asset_count = 0; got strict match {strict_match:.4f}% and generated_asset_count {generated_assets}{baseline_suffix}{element_suffix}"
+                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, generated_asset_count = 0, element asset counts = 0, no undeclared bitmap patches, and component semantic coverage; got strict match {strict_match:.4f}%, generated_asset_count {generated_assets}, element_asset_count {element_asset_count}{baseline_suffix}{element_asset_suffix}{bitmap_suffix}{element_suffix}{semantic_suffix}"
             ),
         ),
         "hybrid_asset_98": status(
@@ -677,7 +1020,7 @@ def main() -> None:
             (
                 f"strict match {strict_match:.4f}% >= {args.target_match:.4f}%, all generated assets limited to tracks {sorted(allowed_tracks)}, and asset coverage {coverage['total_asset_coverage_pct']:.2f}% within {args.max_asset_coverage:.1f}%"
                 if componentized_islands_pass
-                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, generated assets only on tracks {sorted(allowed_tracks)}, and region-scoped asset coverage; got strict match {strict_match:.4f}% and {len(disallowed_assets)} disallowed asset regions{baseline_suffix}{coverage_suffix}{element_suffix}"
+                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, generated assets only on tracks {sorted(allowed_tracks)}, region-scoped asset coverage, no undeclared bitmap patches, and component semantic coverage; got strict match {strict_match:.4f}% and {len(disallowed_assets)} disallowed asset regions{baseline_suffix}{coverage_suffix}{bitmap_suffix}{element_suffix}{semantic_suffix}"
             ),
         ),
         "componentized_approximation_98": status(approximation_pass, approximation_reason),
@@ -695,6 +1038,14 @@ def main() -> None:
                 else "no placeholder assets detected"
             ),
         ),
+        "element_asset_contract": status(
+            bool(element_asset_evidence["pass"]),
+            str(element_asset_evidence["reason"]),
+        ),
+        "component_semantics_contract": status(
+            semantic_ok,
+            str(component_semantic_evidence["reason"]),
+        ),
     }
 
     report = {
@@ -711,6 +1062,9 @@ def main() -> None:
             "pass": coverage_ok,
             "problems": coverage_problems,
         },
+        "undeclared_bitmap_evidence": undeclared_bitmap_evidence,
+        "element_asset_evidence": element_asset_evidence,
+        "component_semantic_evidence": component_semantic_evidence,
         "element_contract": {
             "declared": element_manifest_path.exists(),
             "pass": element_ok,
@@ -744,7 +1098,13 @@ def main() -> None:
                 "element_contract": gates["element_contract"]["pass"],
                 "hybrid_asset_98": gates["hybrid_asset_98"]["pass"],
                 "placeholder_contract": gates["placeholder_contract"]["pass"],
+                "element_asset_contract": gates["element_asset_contract"]["pass"],
+                "component_semantics_contract": gates["component_semantics_contract"]["pass"],
                 "generated_asset_count": generated_assets,
+                "element_asset_count": element_asset_evidence["asset_count"],
+                "rendered_element_asset_count": element_asset_evidence["rendered_dom_asset_count"],
+                "overlay_element_asset_count": element_asset_evidence["overlay_dom_asset_count"],
+                "undeclared_bitmap_count": undeclared_bitmap_evidence["count"],
             },
             indent=2,
         )

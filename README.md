@@ -74,13 +74,18 @@ The key evaluation signals are:
 
 ## Requirements
 
-- **Python 3** with [Pillow](https://pillow.readthedocs.io/) (required) and numpy (recommended — scripts fall back to a slower pure-PIL path without it):
+- **Python 3** with [Pillow](https://pillow.readthedocs.io/) and numpy (both required):
 
   ```bash
   pip install -r scripts/requirements.txt
   ```
 
-- **Node.js** with the full `playwright` package (bundled Chromium), or `playwright-core` plus a system Chrome/Chromium (auto-detected on macOS/Linux/Windows, or set `CHROME_PATH`).
+- **Node.js** with the full `playwright` package (bundled Chromium), or `playwright-core` plus a system Chrome/Chromium (auto-detected on macOS/Linux/Windows, or set `CHROME_PATH`):
+
+  ```bash
+  npm install
+  npm run install:browsers
+  ```
 
 ## Quick start
 
@@ -121,7 +126,10 @@ For the full image-to-component flow into an existing project, start with `scrip
 | `scripts/bootstrap_recovery.py` | Convert triage/planner output into starter manifests, a component/island ledger, island image crops, skeleton CSS, and an intermediate React scaffold |
 | `scripts/fidelity_gate.py` | Gate results without mixing types: component-only / componentized-islands / componentized-approximation / hybrid / placeholder, with baseline and asset-coverage enforcement |
 | `scripts/compare_structure.py` | Structurally compare approximation-track regions (third-party charts/maps/3D) between reference and rebuilt capture: primitive counts, position deltas, foreground palette |
-| `scripts/init_element_manifest.py` | Scaffold the element manifest (element → component mapping) from measured primitive boxes, for the agent to label with type/content/maps_to |
+| `scripts/extract_element_assets.py` | Promote measured icon/avatar/media primitives, prominent navigation controls, KPI sparkline/progress fragments, timeline marker strips, conservative colorful connected-component icons/illustrations, and routed island/approximation regions into `element-assets.json` plus cropped assets for codegen |
+| `scripts/extract_text_elements.py` | Extract high-confidence OCR text runs into `text-elements.json`, including upscaled per-region OCR and redundant merged-line pruning, and optionally merge them into `element-manifest.json` as verifiable text elements |
+| `scripts/init_element_manifest.py` | Scaffold the element manifest (element → component mapping) from measured primitive boxes and merge `element-assets.json`; stale asset references are pruned on reruns, and nested card media stays as separate image elements instead of being stretched into larger card primitives |
+| `scripts/materialize_element_manifest_lab.py` | Render an element-manifest driven rebuilt layer for diagnostic layout/asset QA, consuming declared element assets as DOM `<img>` nodes, suppressing OCR/asset-covered placeholders, rendering nested parent containers as borderless background fills, and inferring conservative text/group control shells for chips/buttons |
 | `scripts/measure_dom_elements.cjs` | Measure rendered `[data-element]` nodes in the rebuilt layer (geometry in reference coordinates, text, tag, svg/img evidence) |
 | `scripts/verify_elements.py` | Verify the rendered DOM against the element manifest: presence, geometry, text content, and type compatibility per element |
 | `scripts/extract_tokens.py` | Extract design tokens from the reference: color clusters with verifiable sample coordinates, type sizes from measured text boxes, spacing scale from measured gaps |
@@ -146,6 +154,7 @@ SKILL.md                  Agent runtime entry point (decision rules, workflow, o
 SKILL.zh-CN.md            Chinese mirror of SKILL.md
 scripts/                  Python/Node tools (prepare, capture, diff, componentization init)
 references/               Full componentization workflow (EN + zh-CN)
+references/component-taxonomy.md  Ant Design-inspired component category/type taxonomy
 assets/prototype-template Workbench HTML/CSS/JS template
 agents/openai.yaml        Codex-only interface descriptor
 ```
