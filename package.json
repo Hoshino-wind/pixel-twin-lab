@@ -5,10 +5,12 @@
   "description": "Pixel Twin Lab screenshot backtesting and componentization skill tools.",
   "scripts": {
     "install:browsers": "playwright install chromium",
-    "smoke": "python3 scripts/smoke_workflow.py"
+    "smoke": "python3 scripts/smoke_workflow.py",
+    "bench": "python3 scripts/run_e2e_benchmark.py"
   },
   "devDependencies": {
-    "playwright": "^1.60.0"
+    "playwright": "^1.60.0",
+    "playwright-core": "^1.61.0"
   },
   "dependencies": {
     "echarts": "^6.1.0"
