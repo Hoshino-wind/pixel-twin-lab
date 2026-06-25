@@ -24,16 +24,46 @@ function parseArgs(argv) {
 const INSTALL_HINT = [
   "Cannot find Playwright. Install it with:",
   "  npm i -D playwright && npx playwright install chromium",
-  'or install playwright-core and point CHROME_PATH at a Chrome/Chromium binary, then pass --browser system.',
+  "System Chrome is disabled for automated backtests. Use --browser bundled.",
 ].join("\n");
+const SYSTEM_BROWSER_ENV = "PIXEL_TWIN_ALLOW_SYSTEM_BROWSER";
+const BUNDLED_BROWSER_ALIASES = new Set([
+  "bundled",
+  "bundled-chromium",
+  "playwright",
+  "managed",
+  "chrome",
+  "chrome-for-testing",
+  "google-chrome",
+  "google-chrome-stable",
+  "chromium",
+  "chromium-browser",
+  "msedge",
+  "edge",
+]);
 
 function requirePlaywright() {
+  const candidates = [];
   for (const name of ["playwright", "playwright-core"]) {
     try {
-      return { chromium: require(name).chromium, package: name };
+      const chromium = require(name).chromium;
+      const executablePath = chromium.executablePath();
+      candidates.push({
+        chromium,
+        package: name,
+        executablePath,
+        browserExists: fs.existsSync(executablePath),
+      });
     } catch (_) {
       // Try the next candidate.
     }
+  }
+  const installedBrowser = candidates.find((candidate) => candidate.browserExists);
+  if (installedBrowser) {
+    return installedBrowser;
+  }
+  if (candidates.length) {
+    return candidates[0];
   }
   throw new Error(INSTALL_HINT);
 }
@@ -63,6 +93,79 @@ function chromePath() {
   return candidates.find((candidate) => fs.existsSync(candidate));
 }
 
+function resolveBrowserChannel(args) {
+  if (args.browser) {
+    const requested = String(args.browser).toLowerCase();
+    if (BUNDLED_BROWSER_ALIASES.has(requested)) {
+      if (requested !== "bundled") {
+        console.warn(`Treating --browser ${args.browser} as bundled Chromium. System Chrome is only available via --browser system for explicit local debugging.`);
+      }
+      return "bundled";
+    }
+    return requested;
+  }
+  if (process.env.PIXEL_TWIN_BROWSER && process.env.PIXEL_TWIN_BROWSER !== "bundled") {
+    console.warn(
+      `Ignoring PIXEL_TWIN_BROWSER=${process.env.PIXEL_TWIN_BROWSER}; capture defaults to bundled Chromium. Pass --browser system explicitly to debug system Chrome.`
+    );
+  }
+  return "bundled";
+}
+
+function rawBrowserRequest(args) {
+  if (args.browser) {
+    return String(args.browser).toLowerCase();
+  }
+  if (process.env.PIXEL_TWIN_BROWSER) {
+    return String(process.env.PIXEL_TWIN_BROWSER).toLowerCase();
+  }
+  return "bundled";
+}
+
+function addCodexSandboxGuidance(error) {
+  if (/MachPortRendezvous|bootstrap_check_in|Permission denied \(1100\)|kill EPERM|operation not permitted/i.test(String(error.message || ""))) {
+    error.message +=
+      "\nChromium appears to have launched inside the Codex sandbox. Run the approved command directly from the project root so the prefix matches: node scripts/capture_modes.cjs ... --browser bundled. Do not prefix it with env, cd, /bin/zsh -lc, shell redirection, or an absolute node path.";
+  }
+}
+
+function bundledBrowserMissing(error) {
+  const message = String(error.message || "");
+  return /Executable doesn't exist|playwright install|chromium_headless_shell/i.test(message);
+}
+
+function buildLaunchOptions(executablePath) {
+  const launchOptions = {
+    headless: true,
+    args: ["--force-color-profile=srgb"],
+  };
+  if (executablePath) {
+    launchOptions.executablePath = executablePath;
+  }
+  return launchOptions;
+}
+
+function browserSource(executablePath) {
+  const normalized = String(executablePath || "").replace(/\\/g, "/");
+  if (normalized.includes("/ms-playwright/")) {
+    return "playwright-managed";
+  }
+  if (normalized.includes("/Applications/") || normalized.includes("/usr/bin/") || /^[A-Za-z]:\//.test(normalized)) {
+    return "system";
+  }
+  return "unknown";
+}
+
+function assertSystemBrowserAllowed() {
+  if (process.env[SYSTEM_BROWSER_ENV] === "1") {
+    return;
+  }
+  throw new Error(
+    "System Chrome capture is disabled by default because it launches a GUI browser and causes Codex escalation/approval failures.\n" +
+      "Use --browser bundled for backtests. For one-off local debugging outside automated runs, set PIXEL_TWIN_ALLOW_SYSTEM_BROWSER=1 and pass --browser system."
+  );
+}
+
 function readConfig(outDir) {
   const configPath = path.join(outDir, "lab-config.json");
   if (!fs.existsSync(configPath)) {
@@ -79,32 +182,72 @@ function modeUrl(baseUrl, mode) {
 }
 
 async function launchBrowser(args) {
-  const { chromium, package: playwrightPackage } = requirePlaywright();
-  // playwright-core has no bundled browser, so it implies the system browser.
-  const channel = String(args.browser || (playwrightPackage === "playwright" ? "bundled" : "system"));
+  const {
+    chromium,
+    package: playwrightPackage,
+    executablePath: playwrightExecutablePath,
+    browserExists: playwrightBrowserExists,
+  } = requirePlaywright();
+  const requestedChannel = resolveBrowserChannel(args);
+  const rawRequestedChannel = rawBrowserRequest(args);
   // Without a forced sRGB profile, screenshots inherit the display color profile
   // (especially on macOS) and every pixel drifts against the reference.
-  const launchOptions = { headless: true, args: ["--force-color-profile=srgb"] };
-
-  if (channel === "system") {
+  const launchBundled = async () => {
+    const executablePath = playwrightBrowserExists ? playwrightExecutablePath : undefined;
+    const browser = await chromium.launch(buildLaunchOptions(executablePath));
+    return {
+      browser,
+      playwrightPackage,
+      channel: "bundled",
+      requestedChannel,
+      rawRequestedChannel,
+      executablePath: executablePath || "bundled-chromium",
+      fallbackReason: null,
+    };
+  };
+  const launchSystem = async (fallbackReason = null) => {
     const executablePath = chromePath();
     if (!executablePath) {
-      throw new Error("No system Chrome/Chromium found. Set CHROME_PATH, or install the full playwright package and pass --browser bundled.");
+      throw new Error("No system Chrome/Chromium found. Set CHROME_PATH, or install Playwright browsers with: npx playwright install chromium.");
     }
-    launchOptions.executablePath = executablePath;
-  } else if (channel !== "bundled") {
-    throw new Error(`Unknown --browser value: ${channel} (expected bundled or system)`);
-  } else if (playwrightPackage === "playwright-core") {
-    throw new Error("--browser bundled requires the full playwright package; playwright-core ships no browser.");
+    const browser = await chromium.launch(buildLaunchOptions(executablePath));
+    return {
+      browser,
+      playwrightPackage,
+      channel: "system",
+      requestedChannel,
+      rawRequestedChannel,
+      executablePath,
+      fallbackReason,
+    };
+  };
+
+  if (requestedChannel === "system") {
+    assertSystemBrowserAllowed();
+    try {
+      return await launchSystem();
+    } catch (error) {
+      addCodexSandboxGuidance(error);
+      throw error;
+    }
+  }
+  if (requestedChannel !== "bundled") {
+    throw new Error(`Unknown --browser value: ${requestedChannel} (expected bundled or system)`);
   }
 
   try {
-    const browser = await chromium.launch(launchOptions);
-    return { browser, playwrightPackage, channel, executablePath: launchOptions.executablePath || "bundled-chromium" };
+    return await launchBundled();
   } catch (error) {
-    if (channel === "bundled") {
-      error.message += "\nBundled Chromium may be missing. Run: npx playwright install chromium, or pass --browser system.";
+    if (bundledBrowserMissing(error)) {
+      error.message =
+        "Bundled Chromium is missing. Install it with: npm run install:browsers\n" +
+        "Automatic system Chrome fallback is disabled because it requires GUI/sandbox escalation in Codex.\n" +
+        "Use --browser bundled for backtests.\n" +
+        `Original bundled error: ${error.message}`;
+      throw error;
     }
+    error.message += "\nBundled Chromium launch failed. Run: npm run install:browsers. Do not use system Chrome for automated backtests.";
+    addCodexSandboxGuidance(error);
     throw error;
   }
 }
@@ -112,7 +255,9 @@ async function launchBrowser(args) {
 async function main() {
   const args = parseArgs(process.argv);
   if (args.help || args.h) {
-    console.log("Usage: capture_modes.cjs --url http://127.0.0.1:8787/ --out-dir /abs/lab [--modes reference,rebuilt,exact] [--width 1536 --height 1024] [--browser bundled|system] [--wait-until networkidle|load|domcontentloaded] [--settle-ms 0]");
+    console.log("Usage: capture_modes.cjs --url http://127.0.0.1:8787/ --out-dir /abs/lab [--modes reference,rebuilt,exact] [--width 1536 --height 1024] [--browser bundled] [--wait-until networkidle|load|domcontentloaded] [--settle-ms 0]");
+    console.log("Default browser: bundled. System Chrome is disabled for automated backtests.");
+    console.log("Codex: run this script directly with node; use --browser bundled. Do not wrap it in a shell.");
     return;
   }
   if (!args.url || !args["out-dir"]) {
@@ -134,12 +279,16 @@ async function main() {
   const waitUntil = String(args["wait-until"] || "networkidle");
   const settleMs = Number(args["settle-ms"] || 0);
 
-  const { browser, playwrightPackage, channel, executablePath } = await launchBrowser(args);
+  const { browser, playwrightPackage, channel, requestedChannel, rawRequestedChannel, executablePath, fallbackReason } = await launchBrowser(args);
   const meta = {
     playwright_package: playwrightPackage,
+    requested_browser_input: rawRequestedChannel,
+    requested_browser_channel: requestedChannel,
     browser_channel: channel,
+    browser_fallback_reason: fallbackReason,
     browser_version: browser.version(),
     executable_path: executablePath,
+    browser_source: browserSource(executablePath),
     platform: process.platform,
     color_profile: "srgb",
     viewport: { width, height, deviceScaleFactor: 1 },
@@ -165,6 +314,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(error && error.message ? error.message : error);
   process.exit(1);
 });

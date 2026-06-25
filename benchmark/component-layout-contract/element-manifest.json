@@ -1,0 +1,16 @@
+{
+  "regions": [
+    {
+      "name": "kpi-row",
+      "elements": [
+        {
+          "id": "uptime-title",
+          "type": "text",
+          "content": "Uptime",
+          "bounds": { "x": 40, "y": 38, "width": 80, "height": 18 },
+          "maps_to": "StatCard:title"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {
+      "name": "good-component-covered",
+      "file": "good-component-covered.json",
+      "expect_pass": true,
+      "allow_unmeasured": true
+    },
+    {
+      "name": "bad-region-without-component",
+      "file": "bad-region-without-component.json",
+      "expect_pass": false,
+      "allow_unmeasured": true,
+      "expect_issue_substrings": [
+        "track 'component' region 'hero-card' has no component declared in it"
+      ]
+    },
+    {
+      "name": "bad-component-without-elements",
+      "file": "bad-component-without-elements.json",
+      "expect_pass": false,
+      "allow_unmeasured": true,
+      "expect_issue_substrings": [
+        "declares no elements"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "name": "good-required-contracts",
+      "file": "good-required-contracts.json",
+      "expect_pass": true,
+      "allow_unmeasured": true
+    },
+    {
+      "name": "good-trivial-vector-icon",
+      "file": "good-trivial-vector-icon.json",
+      "expect_pass": true,
+      "allow_unmeasured": true
+    },
+    {
+      "name": "bad-missing-surface-style",
+      "file": "bad-missing-surface-style.json",
+      "expect_pass": false,
+      "allow_unmeasured": true,
+      "expect_issue_substrings": [
+        "has no root style contract"
+      ]
+    },
+    {
+      "name": "bad-weak-surface-style",
+      "file": "bad-weak-surface-style.json",
+      "expect_pass": false,
+      "allow_unmeasured": true,
+      "expect_issue_substrings": [
+        "surface style contract must include background_color",
+        "surface style contract must include at least one shape/boundary property"
+      ]
+    },
+    {
+      "name": "bad-icon-missing-asset",
+      "file": "bad-icon-missing-asset.json",
+      "expect_pass": false,
+      "allow_unmeasured": true,
+      "expect_issue_substrings": [
+        "element type 'icon' must declare requires_asset: true with asset_id"
+      ]
+    }
+  ]
+}

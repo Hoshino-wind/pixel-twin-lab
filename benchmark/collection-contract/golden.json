@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {
+      "name": "good",
+      "page": "good.html",
+      "expect_pass": true,
+      "expect_ok_equals_total": true
+    },
+    {
+      "name": "bug",
+      "page": "bug.html",
+      "expect_pass": false,
+      "expect_problem_substrings": ["data-element-item", "collections must render rows/items from a data array"]
+    }
+  ]
+}

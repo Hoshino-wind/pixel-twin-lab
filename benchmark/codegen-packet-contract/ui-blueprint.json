@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "source": {
+    "reference": "assets/reference.png",
+    "width": 360,
+    "height": 220,
+    "background": "#f8fafc"
+  },
+  "layout": {
+    "regions": [
+      {
+        "name": "audit-log",
+        "bounds": { "x": 24, "y": 24, "width": 312, "height": 156 },
+        "role": "list",
+        "track": "component"
+      },
+      {
+        "name": "trip-map",
+        "bounds": { "x": 24, "y": 24, "width": 312, "height": 156 },
+        "role": "media",
+        "track": "island",
+        "composition": {
+          "background": {
+            "kind": "map",
+            "asset_policy": "inpaint-clean",
+            "asset_element_id": "trip-map-bg",
+            "library": "leaflet",
+            "generated_asset_path": "composition-assets/trip-map-background-clean.png"
+          },
+          "foreground": [
+            {
+              "component_id": "trip-booking-card",
+              "z": 2,
+              "bounds": { "x": 64, "y": 96, "width": 156, "height": 48 }
+            }
+          ]
+        }
+      }
+    ],
+    "relations": [
+      {
+        "scope": "audit-log",
+        "type": "column",
+        "items": ["audit-log"],
+        "gap_px": 0,
+        "confidence": 0.92
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "audit-log",
+      "region": "audit-log",
+      "category": "data-display",
+      "type": "list",
+      "bounds": { "x": 24, "y": 24, "width": 312, "height": 156 },
+      "style": {
+        "source": "measured",
+        "expected": {
+          "background_color": "#ffffff",
+          "border_radius_px": 8
+        }
+      },
+      "elements": [
+        {
+          "id": "audit-log-list",
+          "type": "collection",
+          "bounds": { "x": 24, "y": 24, "width": 312, "height": 156 },
+          "item_count": 3,
+          "item_bounds": [
+            { "id": "row-1", "x": 24, "y": 24, "width": 312, "height": 52 },
+            { "id": "row-2", "x": 24, "y": 76, "width": 312, "height": 52 },
+            { "id": "row-3", "x": 24, "y": 128, "width": 312, "height": 52 }
+          ],
+          "first_item_content": "14:34 aria.morgan Update Deployment",
+          "maps_to": "AuditLog:items"
+        },
+        {
+          "id": "audit-log-icon",
+          "type": "icon",
+          "bounds": { "x": 32, "y": 32, "width": 18, "height": 18 },
+          "content": "audit log icon",
+          "maps_to": "AuditLog:icon",
+          "requires_asset": true,
+          "asset_id": "audit-log-icon-asset"
+        }
+      ]
+    },
+    {
+      "id": "trip-booking-card",
+      "region": "trip-map",
+      "category": "data-display",
+      "type": "card",
+      "bounds": { "x": 64, "y": 96, "width": 156, "height": 48 },
+      "content": "Bookings 7/10",
+      "style": {
+        "source": "measured",
+        "expected": {
+          "background_color": "#ffffff",
+          "border_radius_px": 8,
+          "border_width_px": 1,
+          "border_style": "solid",
+          "border_color": "#dbe3ec"
+        }
+      },
+      "elements": [
+        {
+          "id": "trip-booking-card",
+          "type": "card",
+          "bounds": { "x": 64, "y": 96, "width": 156, "height": 48 },
+          "content": "Bookings 7/10",
+          "maps_to": "TripMapOverlay:card"
+        }
+      ]
+    }
+  ],
+  "tokens": {
+    "colors": [
+      { "name": "surface", "value": "#ffffff" },
+      { "name": "text-primary", "value": "#0f172a" }
+    ],
+    "typography": [
+      { "name": "body", "size_px": 13, "weight": "regular" }
+    ],
+    "spacing": [
+      { "name": "gap-sm", "px": 8 }
+    ],
+    "radius": [
+      { "name": "card-radius", "px": 8 }
+    ]
+  },
+  "data": [
+    {
+      "component_id": "audit-log",
+      "shape": "items",
+      "fields": ["time", "actor", "action"],
+      "mock_data": [
+        { "time": "14:34", "actor": "aria.morgan", "action": "Update Deployment" },
+        { "time": "14:31", "actor": "deploy-bot", "action": "Create Deployment" },
+        { "time": "14:30", "actor": "monitoring", "action": "Trigger Alert" }
+      ],
+      "binding": "items",
+      "source": "extracted"
+    }
+  ],
+  "interactions": [],
+  "implementation": {
+    "framework": "react",
+    "styling": "css",
+    "final_dir": "src/pixel-twin",
+    "plan": [
+      { "component_id": "audit-log", "action": "create", "order": 1 },
+      { "component_id": "trip-booking-card", "action": "create", "order": 2 }
+    ]
+  }
+}

@@ -80,7 +80,7 @@ Pixel Twin Lab 把这件事变成一条可验证流水线:固定同一个 viewpo
   pip install -r scripts/requirements.txt
   ```
 
-- **Node.js**,需要完整的 `playwright` 包(自带 Chromium),或 `playwright-core` 加系统 Chrome/Chromium(macOS/Linux/Windows 自动检测,也可设置 `CHROME_PATH`):
+- **Node.js**,需要完整的 `playwright` 包和 Playwright 自带 Chromium:
 
   ```bash
   npm install
@@ -96,19 +96,28 @@ python scripts/prepare_lab.py \
   --out-dir /absolute/path/outputs/pixel-twin
 
 # 2. 在生成的 rebuilt-layer 中实现重建版本,然后启动本地服务
-cd /absolute/path/outputs/pixel-twin
-python3 -m http.server 8787 --bind 127.0.0.1
+python3 -m http.server 8787 \
+  --bind 127.0.0.1 \
+  --directory /absolute/path/outputs/pixel-twin
 
-# 3. 以原图原生尺寸截取 reference / rebuilt / exact 三种模式
+# 3. 从项目根目录截取 reference / rebuilt / exact 三种模式
 node scripts/capture_modes.cjs \
   --url http://127.0.0.1:8787/ \
-  --out-dir /absolute/path/outputs/pixel-twin
+  --out-dir /absolute/path/outputs/pixel-twin \
+  --browser bundled
 
 # 4. 生成差异图和指标
 python scripts/pixel_diff.py \
   --reference /absolute/path/outputs/pixel-twin/assets/reference.png \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
+
+Codex 环境里必须从项目根目录直接执行 `node scripts/capture_modes.cjs`。
+不要包一层 `/bin/zsh -lc`，不要加 `env`、`cd`、重定向或绝对 Node 路径；
+否则已批准的命令前缀匹配不上，会继续触发提权审批。默认使用 Playwright
+自带 Chromium，不自动回退系统 Chrome；系统 Chrome 只用于显式本地调试
+，并且必须额外设置 `PIXEL_TWIN_ALLOW_SYSTEM_BROWSER=1`。自动回测一律使用
+`--browser bundled`。
 
 diff 步骤会输出 `pixel-diff-summary.json`(整体及分区域的 mismatch / MAE / 最大色差)和 `*-diff.png` 热力图。针对最差区域迭代修改、重新截图、重新 diff,直到指标收敛。
 

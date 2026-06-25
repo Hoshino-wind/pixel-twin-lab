@@ -19,10 +19,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-REGION_FIELDS = ("name", "bounds", "role", "track", "parent", "notes")
+REGION_FIELDS = ("name", "bounds", "role", "track", "composition", "parent", "notes")
 RELATION_FIELDS = ("scope", "type", "items", "gap_px", "columns", "align", "confidence", "notes")
-COMPONENT_FIELDS = ("id", "region", "category", "type", "bounds", "content", "maps_to", "elements", "notes")
-ELEMENT_FIELDS = ("id", "type", "bounds", "content", "token_refs")
+COMPONENT_FIELDS = ("id", "region", "category", "type", "bounds", "content", "maps_to", "style", "elements", "notes")
+ELEMENT_FIELDS = (
+    "id", "type", "bounds", "content", "maps_to", "item_count", "min_items",
+    "first_item_content", "requires_asset", "asset_id", "asset_path", "asset_type",
+    "asset_source", "asset_role", "asset_policy", "render_asset_in_library", "token_refs",
+    "style", "runs",
+)
 INTERACTION_FIELDS = ("target", "trigger", "behavior", "states", "source", "notes")
 DATA_FIELDS = ("component_id", "shape", "fields", "mock_data", "binding", "source", "library", "notes")
 COLOR_FIELDS = ("name", "value", "usage", "sampled_at", "maps_to")

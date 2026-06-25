@@ -1,0 +1,16 @@
+{
+  "regions": [
+    {
+      "name": "trip-summary",
+      "elements": [
+        {
+          "id": "trip-title",
+          "type": "text",
+          "content": "Rome Getaway",
+          "bounds": { "x": 48, "y": 44, "width": 120, "height": 20 },
+          "maps_to": "TripCard:title"
+        }
+      ]
+    }
+  ]
+}

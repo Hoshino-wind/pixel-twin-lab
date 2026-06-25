@@ -1,0 +1,16 @@
+{
+  "regions": [
+    {
+      "name": "summary-card",
+      "elements": [
+        {
+          "id": "summary-title",
+          "type": "text",
+          "content": "System Health",
+          "bounds": { "x": 48, "y": 44, "width": 120, "height": 20 },
+          "maps_to": "SummaryCard:title"
+        }
+      ]
+    }
+  ]
+}

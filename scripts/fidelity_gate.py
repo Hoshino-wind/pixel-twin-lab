@@ -10,6 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+ALLOWED_COMPONENTIZED_ELEMENT_ASSET_TYPES = {
+    "avatar", "badge", "chart", "control", "icon", "image", "island", "map", "sparkline",
+}
+DISALLOWED_COMPONENTIZED_ELEMENT_ASSET_TYPES = {"component", "text"}
+DISALLOWED_COMPONENTIZED_ELEMENT_ASSET_SOURCES = {"component-fragment", "ocr-text"}
+
 
 def load_json(path: Path, fallback: Any) -> Any:
     if not path.exists():
@@ -18,6 +24,44 @@ def load_json(path: Path, fallback: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return fallback
+
+
+def manifest_score(raw: Any) -> tuple[int, int]:
+    if not isinstance(raw, dict):
+        return (0, 0)
+    regions = raw.get("regions")
+    if not isinstance(regions, list):
+        return (0, 0)
+    region_count = sum(1 for region in regions if isinstance(region, dict))
+    element_count = sum(
+        len(region.get("elements") or [])
+        for region in regions
+        if isinstance(region, dict)
+    )
+    return (region_count, element_count)
+
+
+def manifest_version(path: Path) -> int:
+    match = re.fullmatch(r"element-manifest-v(\d+)\.json", path.name)
+    if not match:
+        return -1
+    return int(match.group(1))
+
+
+def resolve_element_manifest_path(out_dir: Path) -> Path:
+    default_path = out_dir / "element-manifest.json"
+    best_path = default_path
+    best_score = manifest_score(load_json(default_path, {}))
+    best_version = -1
+    for candidate in sorted(out_dir.glob("element-manifest-v*.json")):
+        score = manifest_score(load_json(candidate, {}))
+        if score[0] < best_score[0]:
+            continue
+        version = manifest_version(candidate)
+        if version > best_version:
+            best_version = version
+            best_path = candidate
+    return best_path
 
 
 def find_capture(summary: list[dict[str, Any]], file_name: str) -> dict[str, Any]:
@@ -101,18 +145,57 @@ def collect_element_asset_evidence(out_dir: Path, index_html: str) -> dict[str, 
     type_counts: dict[str, int] = {}
     source_counts: dict[str, int] = {}
     asset_ids: set[str] = set()
+    asset_policy_failures: list[dict[str, str]] = []
+    registered_assets: set[str] = set()
+
+    def check_asset_policy(asset_id: str, asset_type: str, source: str, origin: str) -> None:
+        reasons: list[str] = []
+        if asset_type in DISALLOWED_COMPONENTIZED_ELEMENT_ASSET_TYPES:
+            reasons.append(f"asset_type {asset_type!r} is not allowed in componentized gates")
+        if source in DISALLOWED_COMPONENTIZED_ELEMENT_ASSET_SOURCES:
+            reasons.append(f"asset_source {source!r} is not allowed in componentized gates")
+        if asset_type and asset_type not in ALLOWED_COMPONENTIZED_ELEMENT_ASSET_TYPES and asset_type not in DISALLOWED_COMPONENTIZED_ELEMENT_ASSET_TYPES:
+            reasons.append(f"asset_type {asset_type!r} is not in the allowed componentized asset set")
+        for reason in reasons:
+            asset_policy_failures.append(
+                {
+                    "id": asset_id or "unknown",
+                    "asset_type": asset_type or "unknown",
+                    "source": source or "unknown",
+                    "origin": origin,
+                    "reason": reason,
+                }
+            )
+
+    def register_asset(asset_id: str, asset_type: str, source: str, origin: str) -> None:
+        if asset_type == "chart-plot":
+            asset_type = "chart"
+        if asset_id:
+            asset_ids.add(asset_id)
+        dedupe_key = asset_id or f"{origin}:{len(registered_assets)}"
+        if dedupe_key in registered_assets:
+            if asset_type and asset_type != "asset":
+                check_asset_policy(asset_id, asset_type, source, origin)
+            return
+        registered_assets.add(dedupe_key)
+        asset_type = asset_type or "asset"
+        source = source or "unknown"
+        type_counts[asset_type] = type_counts.get(asset_type, 0) + 1
+        source_counts[source] = source_counts.get(source, 0) + 1
+        check_asset_policy(asset_id, asset_type, source, origin)
+
     for asset in assets:
         if not isinstance(asset, dict):
             continue
         asset_id = str(asset.get("id") or "")
-        if asset_id:
-            asset_ids.add(asset_id)
-        asset_type = str(asset.get("asset_type") or "asset")
-        source = str(asset.get("source") or "unknown")
-        type_counts[asset_type] = type_counts.get(asset_type, 0) + 1
-        source_counts[source] = source_counts.get(source, 0) + 1
+        register_asset(
+            asset_id,
+            str(asset.get("asset_type") or "asset"),
+            str(asset.get("source") or "unknown"),
+            "element-assets.json",
+        )
 
-    manifest_path = out_dir / "element-manifest.json"
+    manifest_path = resolve_element_manifest_path(out_dir)
     manifest = load_json(manifest_path, {})
     required_asset_ids: set[str] = set()
     required_asset_elements = 0
@@ -127,9 +210,23 @@ def collect_element_asset_evidence(out_dir: Path, index_html: str) -> dict[str, 
                 manifest_elements += 1
                 if element.get("requires_asset") or element.get("asset_path") or element.get("asset_id"):
                     required_asset_elements += 1
-                    asset_id = str(element.get("asset_id") or "")
+                    asset_path = str(element.get("asset_path") or "")
+                    asset_id = str(element.get("asset_id") or (Path(asset_path).stem if asset_path else ""))
                     if asset_id:
                         required_asset_ids.add(asset_id)
+                    if asset_path and (out_dir / asset_path).exists():
+                        register_asset(
+                            asset_id,
+                            str(element.get("asset_type") or "asset"),
+                            str(element.get("asset_source") or "manifest"),
+                            manifest_path.name,
+                        )
+                    check_asset_policy(
+                        asset_id,
+                        str(element.get("asset_type") or ""),
+                        str(element.get("asset_source") or ""),
+                        manifest_path.name,
+                    )
 
     dom_ids = set(re.findall(r'data-element-asset-id="([^"]+)"', index_html))
     overlay_blocks = re.findall(
@@ -141,13 +238,26 @@ def collect_element_asset_evidence(out_dir: Path, index_html: str) -> dict[str, 
     for block in overlay_blocks:
         overlay_ids.update(re.findall(r'data-element-asset-id="([^"]+)"', block))
     rendered_ids = dom_ids - overlay_ids
+    for tag_match in re.finditer(r"<[a-zA-Z0-9]+\b(?=[^>]*\bdata-element-asset-id=)([^>]*)>", index_html):
+        attrs = parse_attrs(tag_match.group(0))
+        asset_id = str(attrs.get("data-element-asset-id") or "")
+        if not asset_id:
+            continue
+        register_asset(
+            asset_id,
+            str(attrs.get("data-asset-type") or "asset"),
+            "rendered-dom",
+            "index.html",
+        )
 
     missing_manifest_assets = sorted(required_asset_ids - asset_ids)
     missing_rendered_assets = sorted(required_asset_ids - rendered_ids)
+    policy_pass = not asset_policy_failures
+    required_assets_ok = bool(required_asset_ids) and not missing_manifest_assets and not missing_rendered_assets
     return {
-        "source": str(assets_path) if assets_path.exists() else None,
+        "source": str(assets_path) if assets_path.exists() else (str(manifest_path) if registered_assets else None),
         "manifest_source": str(manifest_path) if manifest_path.exists() else None,
-        "asset_count": len(assets),
+        "asset_count": len(registered_assets),
         "asset_type_counts": type_counts,
         "asset_source_counts": source_counts,
         "manifest_element_count": manifest_elements,
@@ -160,14 +270,21 @@ def collect_element_asset_evidence(out_dir: Path, index_html: str) -> dict[str, 
         "rendered_dom_asset_ids": sorted(rendered_ids),
         "missing_rendered_asset_ids": missing_rendered_assets,
         "overlay_present": bool(overlay_blocks),
-        "pass": bool(required_asset_ids) and not missing_manifest_assets and not missing_rendered_assets,
+        "allowed_componentized_asset_types": sorted(ALLOWED_COMPONENTIZED_ELEMENT_ASSET_TYPES),
+        "policy_pass": policy_pass,
+        "policy_failures": asset_policy_failures,
+        "pass": required_assets_ok and policy_pass,
         "reason": (
-            "required element assets are present in the manifest and rendered as non-overlay DOM assets"
-            if required_asset_ids and not missing_manifest_assets and not missing_rendered_assets
+            "required element assets are present, rendered as non-overlay DOM assets, and allowed for componentized gates"
+            if required_assets_ok and policy_pass
             else (
-                "no element manifest asset requirements declared"
-                if not required_asset_ids
-                else "some required element assets are missing from the asset ledger or rendered DOM"
+                "element asset policy failed: component/text/component-fragment/ocr-text assets cannot prove componentized restoration"
+                if not policy_pass
+                else (
+                    "no element manifest asset requirements declared"
+                    if not required_asset_ids
+                    else "some required element assets are missing from the asset ledger or rendered DOM"
+                )
             )
         ),
     }
@@ -219,7 +336,7 @@ def collection_semantic_required(name: str) -> bool:
 
 
 def collect_component_semantic_evidence(out_dir: Path, index_html: str, ledger: dict[str, Any]) -> dict[str, Any]:
-    manifest = load_json(out_dir / "element-manifest.json", {})
+    manifest = load_json(resolve_element_manifest_path(out_dir), {})
     regions = manifest.get("regions") if isinstance(manifest, dict) else []
     if not isinstance(regions, list):
         regions = []
@@ -247,7 +364,7 @@ def collect_component_semantic_evidence(out_dir: Path, index_html: str, ledger: 
         if not ok:
             failures.append(item)
     return {
-        "source": str(out_dir / "element-manifest.json") if (out_dir / "element-manifest.json").exists() else None,
+        "source": str(resolve_element_manifest_path(out_dir)) if resolve_element_manifest_path(out_dir).exists() else None,
         "checked_region_count": len(checked),
         "failure_count": len(failures),
         "checked_regions": checked,
@@ -657,6 +774,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- manifest_source: `{element_assets.get('manifest_source') or 'none'}`",
         f"- asset_count: `{element_assets.get('asset_count', 0)}`",
         f"- asset_type_counts: `{element_assets.get('asset_type_counts', {})}`",
+        f"- allowed_componentized_asset_types: `{element_assets.get('allowed_componentized_asset_types', [])}`",
+        f"- policy_result: `{'PASS' if element_assets.get('policy_pass') else 'FAIL'}`",
         f"- required_asset_element_count: `{element_assets.get('required_asset_element_count', 0)}`",
         f"- rendered_dom_asset_count: `{element_assets.get('rendered_dom_asset_count', 0)}`",
         f"- overlay_dom_asset_count: `{element_assets.get('overlay_dom_asset_count', 0)}`",
@@ -667,6 +786,11 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- missing asset ledger entry: `{asset_id}`")
     for asset_id in element_assets.get("missing_rendered_asset_ids") or []:
         lines.append(f"- missing rendered DOM asset: `{asset_id}`")
+    for failure in element_assets.get("policy_failures") or []:
+        lines.append(
+            f"- disallowed element asset `{failure.get('id')}` from `{failure.get('origin')}`: "
+            f"{failure.get('reason')}"
+        )
     semantic = report.get("component_semantic_evidence") or {}
     lines += [
         "",
@@ -851,6 +975,7 @@ def main() -> None:
     required_element_asset_count = int(element_asset_evidence.get("required_asset_element_count") or 0)
     rendered_element_asset_count = int(element_asset_evidence.get("rendered_dom_asset_count") or 0)
     overlay_element_asset_count = int(element_asset_evidence.get("overlay_dom_asset_count") or 0)
+    element_asset_policy_ok = bool(element_asset_evidence.get("policy_pass"))
     element_assets_absent = (
         element_asset_count == 0
         and required_element_asset_count == 0
@@ -901,7 +1026,7 @@ def main() -> None:
     component_track = component_track_strict(rebuilt, region_metrics, approximation_names, page_dimensions(out_dir, ledger))
     approximation_failures = [item for item in approximation_results if not item["pass"]]
 
-    element_manifest_path = out_dir / "element-manifest.json"
+    element_manifest_path = resolve_element_manifest_path(out_dir)
     element_verification = load_json(out_dir / "element-verification.json", {})
     element_summary = element_verification.get("summary") if isinstance(element_verification, dict) else None
     if not element_manifest_path.exists():
@@ -913,7 +1038,7 @@ def main() -> None:
     elif not isinstance(element_summary, dict):
         element_ok = False
         element_reason = (
-            "element-manifest.json exists but element-verification.json is missing; "
+            f"{element_manifest_path.name} exists but element-verification.json is missing; "
             "run measure_dom_elements.cjs and verify_elements.py"
         )
     else:
@@ -940,6 +1065,7 @@ def main() -> None:
         and not disallowed_assets
         and coverage_ok
         and bitmap_ok
+        and element_asset_policy_ok
         and element_ok is not False
         and semantic_ok
     )
@@ -962,11 +1088,13 @@ def main() -> None:
             f"component-track strict match {component_track_match:.4f}% is below {args.target_match:.4f}% "
             "(whole page minus approximation regions)"
         )
-    elif disallowed_assets or not coverage_ok or not bitmap_ok:
+    elif disallowed_assets or not coverage_ok or not bitmap_ok or not element_asset_policy_ok:
         approximation_pass = False
         approximation_reason = "island asset rules failed" + ("" if coverage_ok else f"; {'; '.join(coverage_problems)}")
         if not bitmap_ok:
             approximation_reason += "; undeclared bitmap DOM/CSS evidence found"
+        if not element_asset_policy_ok:
+            approximation_reason += "; element asset policy failed"
     elif approximation_failures:
         approximation_pass = False
         names = [item["name"] for item in approximation_failures]
@@ -996,6 +1124,11 @@ def main() -> None:
             f"rendered {rendered_element_asset_count}, overlay {overlay_element_asset_count})"
         )
     )
+    element_asset_policy_suffix = (
+        ""
+        if element_asset_policy_ok
+        else f"; element asset policy failed: {len(element_asset_evidence.get('policy_failures') or [])} disallowed element assets"
+    )
     semantic_suffix = "" if semantic_ok else f"; component semantic contract failed: {component_semantic_evidence['failure_count']} collection-like regions lack collection/table/list DOM evidence"
     bitmap_suffix = "" if bitmap_ok else "; undeclared bitmap DOM/CSS evidence found"
     gates = {
@@ -1020,7 +1153,7 @@ def main() -> None:
             (
                 f"strict match {strict_match:.4f}% >= {args.target_match:.4f}%, all generated assets limited to tracks {sorted(allowed_tracks)}, and asset coverage {coverage['total_asset_coverage_pct']:.2f}% within {args.max_asset_coverage:.1f}%"
                 if componentized_islands_pass
-                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, generated assets only on tracks {sorted(allowed_tracks)}, region-scoped asset coverage, no undeclared bitmap patches, and component semantic coverage; got strict match {strict_match:.4f}% and {len(disallowed_assets)} disallowed asset regions{baseline_suffix}{coverage_suffix}{bitmap_suffix}{element_suffix}{semantic_suffix}"
+                else f"requires a proven baseline, strict match >= {args.target_match:.4f}%, generated assets only on tracks {sorted(allowed_tracks)}, element assets limited to allowed icon/image/media types, region-scoped asset coverage, no undeclared bitmap patches, and component semantic coverage; got strict match {strict_match:.4f}% and {len(disallowed_assets)} disallowed asset regions{baseline_suffix}{coverage_suffix}{bitmap_suffix}{element_asset_policy_suffix}{element_suffix}{semantic_suffix}"
             ),
         ),
         "componentized_approximation_98": status(approximation_pass, approximation_reason),
@@ -1099,6 +1232,8 @@ def main() -> None:
                 "hybrid_asset_98": gates["hybrid_asset_98"]["pass"],
                 "placeholder_contract": gates["placeholder_contract"]["pass"],
                 "element_asset_contract": gates["element_asset_contract"]["pass"],
+                "element_asset_policy_pass": element_asset_evidence["policy_pass"],
+                "disallowed_element_asset_count": len(element_asset_evidence.get("policy_failures") or []),
                 "component_semantics_contract": gates["component_semantics_contract"]["pass"],
                 "generated_asset_count": generated_assets,
                 "element_asset_count": element_asset_evidence["asset_count"],

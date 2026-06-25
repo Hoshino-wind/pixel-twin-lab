@@ -108,7 +108,32 @@ def main() -> None:
             "version": 1,
             "source": {"reference": "assets/reference.png", "width": 200, "height": 100, "background": "#f5f5f5"},
             "layout": {"regions": [{"name": "card", "bounds": {"x": 10, "y": 10, "width": 80, "height": 70}, "role": "card", "track": "component"}]},
-            "components": [{"id": "card-shell", "region": "card", "category": "data-display", "type": "card", "bounds": {"x": 10, "y": 10, "width": 80, "height": 70}, "content": "Hello"}],
+            "components": [
+                {
+                    "id": "card-shell",
+                    "region": "card",
+                    "category": "data-display",
+                    "type": "card",
+                    "bounds": {"x": 10, "y": 10, "width": 80, "height": 70},
+                    "content": "Hello",
+                    "style": {
+                        "source": "measured",
+                        "expected": {
+                            "background_color": "#ffffff",
+                            "border_radius_px": 0,
+                        },
+                    },
+                    "elements": [
+                        {
+                            "id": "card-shell-title",
+                            "type": "text",
+                            "bounds": {"x": 18, "y": 20, "width": 48, "height": 16},
+                            "content": "Hello",
+                            "maps_to": "Card:title",
+                        }
+                    ],
+                }
+            ],
             "tokens": {"colors": [{"name": "surface", "value": "#ffffff", "sampled_at": [20, 20]}], "typography": [], "spacing": []},
             "data": [],
             "interactions": [],

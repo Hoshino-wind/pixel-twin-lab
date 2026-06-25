@@ -21,8 +21,8 @@ English is the default runtime language for this skill. The Chinese mirror is av
 ## Requirements
 
 - Python: `pip install -r scripts/requirements.txt` (Pillow and numpy are required).
-- Screenshots: `npm install` installs the full `playwright` package. Run `npm run install:browsers` for bundled Chromium, or use `playwright-core` plus a system Chrome/Chromium (auto-detected on macOS/Linux/Windows, or set `CHROME_PATH`).
-- Verify before a run: `python3 -c "import PIL, numpy"` and `node -e "require('playwright')"` (or `playwright-core` when using `--browser system`).
+- Screenshots: `npm install` installs the full `playwright` package. Run `npm run install:browsers` for bundled Chromium. Automated backtests must use bundled Chromium, not system Chrome.
+- Verify before a run: `python3 -c "import PIL, numpy"` and `node -e "require('playwright')"`.
 
 ## Blueprint Workflow (primary)
 
@@ -230,7 +230,7 @@ node /path/to/pixel-twin-lab/scripts/capture_modes.cjs \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
 
-`--browser bundled|system` picks Playwright's bundled Chromium or a system Chrome (`playwright-core` implies `system`). Chromium is launched with a forced sRGB color profile so captures do not inherit the display profile (otherwise every pixel drifts, especially on macOS). The run writes `capture-meta.json` with the browser version, color profile, and viewport so cross-machine diffs stay attributable.
+`--browser bundled` uses Playwright's bundled Chromium and is the required path for automated backtests. `--browser system` is blocked unless `PIXEL_TWIN_ALLOW_SYSTEM_BROWSER=1` is set for one-off local debugging, because launching system Chrome requires GUI/sandbox escalation in Codex. Chromium is launched with a forced sRGB color profile so captures do not inherit the display profile (otherwise every pixel drifts, especially on macOS). The run writes `capture-meta.json` with the browser version, color profile, and viewport so cross-machine diffs stay attributable.
 
 Generate diff metrics:
 

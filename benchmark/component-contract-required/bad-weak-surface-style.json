@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "source": {
+    "reference": "assets/reference.png",
+    "width": 320,
+    "height": 180,
+    "background": "#f8fafc"
+  },
+  "layout": {
+    "regions": [
+      {
+        "name": "status-card",
+        "bounds": { "x": 24, "y": 24, "width": 200, "height": 96 },
+        "role": "card",
+        "track": "component"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "status-card-shell",
+      "region": "status-card",
+      "category": "data-display",
+      "type": "card",
+      "bounds": { "x": 24, "y": 24, "width": 200, "height": 96 },
+      "content": "Healthy",
+      "style": {
+        "source": "measured",
+        "expected": {
+          "opacity": 1
+        }
+      },
+      "elements": [
+        {
+          "id": "status-label",
+          "type": "text",
+          "bounds": { "x": 68, "y": 40, "width": 80, "height": 20 },
+          "content": "Healthy",
+          "maps_to": "StatusCard:label"
+        }
+      ]
+    }
+  ],
+  "tokens": {
+    "colors": [
+      { "name": "surface", "value": "#ffffff" },
+      { "name": "text-primary", "value": "#0f172a" }
+    ],
+    "typography": [
+      { "name": "body", "size_px": 14, "weight": "medium" }
+    ],
+    "spacing": [
+      { "name": "gap-sm", "px": 8 }
+    ]
+  },
+  "data": [],
+  "interactions": [],
+  "implementation": {
+    "framework": "react",
+    "styling": "css",
+    "final_dir": "src/pixel-twin",
+    "plan": [
+      { "component_id": "status-card-shell", "action": "create", "order": 1 }
+    ]
+  }
+}

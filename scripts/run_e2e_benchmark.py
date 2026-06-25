@@ -4,7 +4,7 @@ browser, and assert the element/style contract against committed goldens.
 
 Unlike the Python smoke (smoke_workflow.py, which exercises the pure-Python
 pipeline with no browser), this is the real e2e: it starts an http server,
-drives measure_dom_elements.cjs (Playwright + bundled-or-system Chrome) to read
+drives measure_dom_elements.cjs (Playwright bundled Chromium by default) to read
 getComputedStyle from the rendered DOM, runs verify_elements.py, and compares the
 verification result to benchmark/<suite>/golden.json. Deterministic by design —
 the asserted properties (computed font-size/weight/color/vertical-align of
@@ -68,6 +68,17 @@ def check_case(case: dict, verification: dict) -> list[str]:
             for el in region.get("elements", [])
             for p in (el.get("problems", []) + el.get("warnings", []))
         )
+        composition_blob = "\n".join(
+            f"{region.get('name')}: {p}"
+            for region in verification.get("regions", [])
+            for p in ((region.get("composition") or {}).get("problems") or [])
+        )
+        component_blob = "\n".join(
+            f"{component.get('id')}: {p}"
+            for component in verification.get("components", [])
+            for p in (component.get("problems") or [])
+        )
+        blob = "\n".join(part for part in (blob, composition_blob, component_blob) if part)
         for sub in subs:
             if sub not in blob:
                 fails.append(f"expected a problem containing '{sub}', none found")
@@ -77,7 +88,11 @@ def check_case(case: dict, verification: dict) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--suite", default="style-contract", help="benchmark/<suite> directory name")
-    parser.add_argument("--browser", default=None, help="bundled|system; default lets measure_dom_elements auto-detect")
+    parser.add_argument(
+        "--browser",
+        default="bundled",
+        help="bundled by default; system is blocked by the capture scripts unless explicitly opted in for local debugging",
+    )
     parser.add_argument("--keep", action="store_true", help="keep the temp work dir for inspection")
     args = parser.parse_args()
 
@@ -111,11 +126,21 @@ def main() -> int:
             case_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy(manifest_src, case_dir / "element-manifest.json")
             shutil.copy(config_src, case_dir / "lab-config.json")
+            blueprint_src = suite_dir / "ui-blueprint.json"
+            if blueprint_src.exists():
+                shutil.copy(blueprint_src, case_dir / "ui-blueprint.json")
             url = f"http://127.0.0.1:{port}/{args.suite}/{case['page']}"
 
-            measure_cmd = ["node", str(SCRIPTS / "measure_dom_elements.cjs"), "--url", url, "--out-dir", str(case_dir)]
-            if args.browser:
-                measure_cmd += ["--browser", args.browser]
+            measure_cmd = [
+                "node",
+                str(SCRIPTS / "measure_dom_elements.cjs"),
+                "--url",
+                url,
+                "--out-dir",
+                str(case_dir),
+                "--browser",
+                args.browser,
+            ]
             m = run(measure_cmd)
             if m.returncode != 0:
                 low = (m.stderr or "").lower()

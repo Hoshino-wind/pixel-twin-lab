@@ -1,0 +1,17 @@
+{
+  "regions": [
+    {
+      "name": "audit-log",
+      "elements": [
+        {
+          "id": "audit-log-list",
+          "type": "collection",
+          "content": "Audit Log",
+          "bounds": { "x": 24, "y": 24, "width": 312, "height": 156 },
+          "item_count": 3,
+          "first_item_content": "14:34 aria.morgan Update Deployment"
+        }
+      ]
+    }
+  ]
+}

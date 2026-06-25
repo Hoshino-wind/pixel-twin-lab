@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "source": {
+    "reference": "assets/reference.png",
+    "width": 320,
+    "height": 180,
+    "background": "#ffffff"
+  },
+  "layout": {
+    "regions": [
+      {
+        "name": "hero-card",
+        "bounds": { "x": 24, "y": 24, "width": 180, "height": 96 },
+        "role": "card",
+        "track": "component"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "hero-card-shell",
+      "region": "hero-card",
+      "category": "data-display",
+      "type": "card",
+      "bounds": { "x": 24, "y": 24, "width": 180, "height": 96 },
+      "content": "Current Trip"
+    }
+  ],
+  "tokens": {
+    "colors": [
+      { "name": "surface", "value": "#ffffff" },
+      { "name": "text-primary", "value": "#111827" }
+    ],
+    "typography": [
+      { "name": "title", "size_px": 16, "weight": "semibold" }
+    ],
+    "spacing": [
+      { "name": "card-pad", "px": 16 }
+    ]
+  },
+  "data": [],
+  "interactions": [],
+  "implementation": {
+    "framework": "react",
+    "styling": "css",
+    "final_dir": "src/pixel-twin",
+    "plan": [
+      { "component_id": "hero-card-shell", "action": "create", "order": 1 }
+    ]
+  }
+}

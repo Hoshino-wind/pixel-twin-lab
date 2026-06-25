@@ -116,6 +116,20 @@ def choose_decision(
     slice_source = str(lab.get("slice_source") or "unknown")
     coverage = as_float(lab.get("coverage_pct"), 0.0) or 0.0
     exact_mismatch = metric(exact, "mismatch_pct")
+    if slice_source == "manifest" and coverage < args.coverage_min:
+        reasons.append(f"Manifest slice coverage is {coverage:.2f}%, below {args.coverage_min:.2f}%.")
+        if exact_mismatch is None:
+            reasons.append("exact-capture.png is missing, so the manifest ceiling is unproven.")
+        elif exact_mismatch > args.exact_target:
+            reasons.append(f"Manifest exact mismatch is {fmt_pct(exact_mismatch)}, above {fmt_pct(args.exact_target)}.")
+        actions.extend(
+            [
+                "Expand the named region manifest before rebuilding individual components.",
+                "Keep only media/icon/map/photo/chart islands as assets; component regions must stay DOM/SVG.",
+                "Rerun prepare_lab.py --manifest after the region list covers the actual page content.",
+            ]
+        )
+        return "manual-manifest", reasons, actions
     if slice_source == "auto":
         if coverage < args.coverage_min:
             reasons.append(f"Auto slice coverage is {coverage:.2f}%, below {args.coverage_min:.2f}%.")

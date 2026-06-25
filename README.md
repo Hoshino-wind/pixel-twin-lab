@@ -80,7 +80,7 @@ The key evaluation signals are:
   pip install -r scripts/requirements.txt
   ```
 
-- **Node.js** with the full `playwright` package (bundled Chromium), or `playwright-core` plus a system Chrome/Chromium (auto-detected on macOS/Linux/Windows, or set `CHROME_PATH`):
+- **Node.js** with the full `playwright` package and bundled Chromium:
 
   ```bash
   npm install
@@ -96,19 +96,33 @@ python scripts/prepare_lab.py \
   --out-dir /absolute/path/outputs/pixel-twin
 
 # 2. Implement your reconstruction in the generated rebuilt-layer, then serve the lab
-cd /absolute/path/outputs/pixel-twin
-python3 -m http.server 8787 --bind 127.0.0.1
+python3 -m http.server 8787 \
+  --bind 127.0.0.1 \
+  --directory /absolute/path/outputs/pixel-twin
 
-# 3. Capture reference / rebuilt / exact modes at native size
+# 3. From the project root, capture reference / rebuilt / exact modes at native size
 node scripts/capture_modes.cjs \
   --url http://127.0.0.1:8787/ \
-  --out-dir /absolute/path/outputs/pixel-twin
+  --out-dir /absolute/path/outputs/pixel-twin \
+  --browser bundled
 
 # 4. Generate diff images and metrics
 python scripts/pixel_diff.py \
   --reference /absolute/path/outputs/pixel-twin/assets/reference.png \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
+
+For Codex runs, execute `node scripts/capture_modes.cjs` directly from the project
+root. Do not wrap the command in `/bin/zsh -lc`, do not prefix it with `env`,
+`cd`, shell redirection, or an absolute Node path. The command must begin with
+`node scripts/capture_modes.cjs` so the approved Codex prefix matches. The
+default path uses bundled Playwright Chromium and does not automatically fall
+back to system Chrome, because launching system Chrome requires GUI/sandbox
+escalation in Codex. `capture-meta.json` records the requested and actual
+browser channel. Backtests must use `--browser bundled`. `--browser system` is
+blocked unless `PIXEL_TWIN_ALLOW_SYSTEM_BROWSER=1` is set for one-off local
+debugging outside automated runs. The scripts ignore `PIXEL_TWIN_BROWSER=system`;
+use the command-line flag plus the explicit debug environment variable instead.
 
 The diff step writes `pixel-diff-summary.json` with overall and per-region mismatch / MAE / max-delta, plus `*-diff.png` heatmaps. Iterate on the worst region, recapture, and re-diff until the numbers converge.
 
@@ -124,17 +138,17 @@ For the full image-to-component flow into an existing project, start with `scrip
 | `scripts/plan_calibration.py` | Turn per-region diffs into an ordered repair plan (skeleton → layout → tokens → slice islands → rebuild), with ready-to-use skeleton CSS and island manifest suggestions |
 | `scripts/triage_lab.py` | Read lab config, diff metrics, and calibration output, then decide the next pass: environment, manual manifest, skeleton, islands, layout/tokens, or region rebuild |
 | `scripts/bootstrap_recovery.py` | Convert triage/planner output into starter manifests, a component/island ledger, island image crops, skeleton CSS, and an intermediate React scaffold |
-| `scripts/fidelity_gate.py` | Gate results without mixing types: component-only / componentized-islands / componentized-approximation / hybrid / placeholder, with baseline and asset-coverage enforcement |
+| `scripts/fidelity_gate.py` | Gate results without mixing types: component-only / componentized-islands / componentized-approximation / hybrid / placeholder, with baseline, asset-coverage, and element-asset policy enforcement so icon/image assets can pass while component/text crops cannot prove componentized restoration |
 | `scripts/compare_structure.py` | Structurally compare approximation-track regions (third-party charts/maps/3D) between reference and rebuilt capture: primitive counts, position deltas, foreground palette |
-| `scripts/extract_element_assets.py` | Promote measured icon/avatar/media primitives, prominent navigation controls, KPI sparkline/progress fragments, timeline marker strips, conservative colorful connected-component icons/illustrations, and routed island/approximation regions into `element-assets.json` plus cropped assets for codegen |
+| `scripts/extract_element_assets.py` | Promote measured icon/avatar/media primitives, prominent navigation controls, KPI sparkline/progress fragments, timeline marker strips, conservative colorful connected-component icons/illustrations, and routed island/approximation regions into `element-assets.json` plus cropped assets for codegen; accepts an explicit `asset-plan.json` so a perception/manual layer can choose asset islands while the script only crops, and rejects component crops in that plan |
 | `scripts/extract_text_elements.py` | Extract high-confidence OCR text runs into `text-elements.json`, including upscaled per-region OCR and redundant merged-line pruning, and optionally merge them into `element-manifest.json` as verifiable text elements |
-| `scripts/init_element_manifest.py` | Scaffold the element manifest (element → component mapping) from measured primitive boxes and merge `element-assets.json`; stale asset references are pruned on reruns, and nested card media stays as separate image elements instead of being stretched into larger card primitives |
+| `scripts/init_element_manifest.py` | Scaffold the element manifest (element → component mapping) from measured primitive boxes and merge `element-assets.json`; repeated row geometry is promoted into one data-driven `collection` element, stale asset references are pruned on reruns, and nested card media stays as separate image elements instead of being stretched into larger card primitives |
 | `scripts/materialize_element_manifest_lab.py` | Render an element-manifest driven rebuilt layer for diagnostic layout/asset QA, consuming declared element assets as DOM `<img>` nodes, suppressing OCR/asset-covered placeholders, rendering nested parent containers as borderless background fills, and inferring conservative text/group control shells for chips/buttons |
-| `scripts/measure_dom_elements.cjs` | Measure rendered `[data-element]` nodes in the rebuilt layer (geometry in reference coordinates, text, tag, svg/img evidence) |
-| `scripts/verify_elements.py` | Verify the rendered DOM against the element manifest: presence, geometry, text content, and type compatibility per element |
+| `scripts/measure_dom_elements.cjs` | Measure rendered `[data-element]` and `[data-component]` nodes in the rebuilt layer (geometry in reference coordinates, text, tag, svg/img evidence, asset identity, owner component, computed surface style) |
+| `scripts/verify_elements.py` | Verify the rendered DOM against the element manifest and optional `ui-blueprint.json`: element presence/geometry/text/type/asset contracts plus component-root layout, surface style, and element ownership |
 | `scripts/extract_tokens.py` | Extract design tokens from the reference: color clusters with verifiable sample coordinates, type sizes from measured text boxes, spacing scale from measured gaps |
 | `scripts/infer_layout.py` | Infer flex/grid layout relations (row/column/grid/stack) from measured boxes, with confidence scores and explicit absolute-fallback |
-| `scripts/validate_blueprint.py` | Gate the six-layer `ui-blueprint.json`: schema checks, cross-layer references, and reconciliation against measurements and reference pixels — code generation is blocked while it fails |
+| `scripts/validate_blueprint.py` | Gate the six-layer `ui-blueprint.json`: schema checks, cross-layer references, mandatory complete component surface/icon-asset contracts, component root bounds backed by measured region/primitive evidence, and reconciliation against measurements and reference pixels — code generation is blocked while it fails |
 | `scripts/make_region_packets.py` | Cut per-region work packets (crop, measurements, tokens, fragment template) for parallel decompose subagents that each see only one region |
 | `scripts/merge_blueprint.py` | Deterministically merge region fragments into `ui-blueprint.json`: id uniqueness, token dedup with reference rewriting, default implementation plan |
 | `scripts/make_codegen_packets.py` | Cut per-component codegen packets containing no image paths — codegen subagents implement from blueprint data only; refuses to run while blueprint validation fails |

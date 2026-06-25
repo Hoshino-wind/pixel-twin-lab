@@ -44,6 +44,7 @@
                 "enum": ["component", "island", "approximation"],
                 "description": "component: DOM/CSS/SVG rebuild; island: region-scoped bitmap asset; approximation: third-party rendering pipeline (charts/maps/3D)"
               },
+              "composition": { "$ref": "#/definitions/composition" },
               "parent": { "type": "string", "description": "Name of the containing region, omitted for top-level regions" },
               "notes": { "type": "string" }
             }
@@ -87,11 +88,15 @@
             "description": "Ant Design-inspired component category. Use custom for project-specific composites."
           },
           "type": {
-            "enum": ["affix", "alert", "anchor", "app", "auto-complete", "avatar", "badge", "breadcrumb", "button", "calendar", "card", "carousel", "cascader", "checkbox", "collapse", "color-picker", "config-provider", "date-picker", "descriptions", "divider", "drawer", "dropdown", "empty", "flex", "float-button", "form", "grid", "icon", "image", "input", "input-number", "layout", "list", "mentions", "menu", "message", "modal", "notification", "pagination", "popconfirm", "popover", "progress", "qr-code", "radio", "rate", "result", "segmented", "select", "skeleton", "slider", "space", "spin", "splitter", "statistic", "steps", "switch", "table", "tabs", "tag", "time-picker", "timeline", "tooltip", "tour", "transfer", "tree", "tree-select", "typography", "upload", "watermark", "chart-container", "map-container", "media", "heading", "text", "nav-item", "menu-item", "tab-item", "table-row", "list-item", "tooltip-anchor", "container", "other"]
+            "enum": ["affix", "alert", "anchor", "app", "auto-complete", "avatar", "badge", "border-beam", "breadcrumb", "button", "calendar", "card", "carousel", "cascader", "checkbox", "collapse", "color-picker", "config-provider", "date-picker", "descriptions", "divider", "drawer", "dropdown", "empty", "flex", "float-button", "form", "grid", "icon", "image", "input", "input-number", "layout", "list", "masonry", "mentions", "menu", "message", "modal", "notification", "pagination", "popconfirm", "popover", "progress", "qr-code", "radio", "rate", "result", "segmented", "select", "skeleton", "slider", "space", "spin", "splitter", "statistic", "steps", "switch", "table", "tabs", "tag", "time-picker", "timeline", "tooltip", "tour", "transfer", "tree", "tree-select", "typography", "upload", "watermark", "chart-container", "map-container", "media", "heading", "text", "nav-item", "menu-item", "tab-item", "table-row", "list-item", "tooltip-anchor", "container", "other"]
           },
           "bounds": { "$ref": "#/definitions/bounds" },
           "content": { "type": "string", "description": "Extracted text for text-bearing components; semantic description otherwise" },
           "maps_to": { "type": "string", "description": "Project component and slot, e.g. 'src/components/StatCard:value' or 'NEW:WeatherCard'" },
+          "style": {
+            "$ref": "#/definitions/styleContract",
+            "description": "Optional root surface/typography contract for the rendered data-component node."
+          },
           "elements": {
             "type": "array",
             "description": "Fine-grained children carrying data-element ids; geometry from measured-primitives",
@@ -101,10 +106,56 @@
               "additionalProperties": false,
               "properties": {
                 "id": { "type": "string" },
-                "type": { "enum": ["text", "icon", "image", "control", "list-item", "card", "divider", "badge", "chart-mark", "container", "decoration"] },
+                "type": { "enum": ["text", "icon", "image", "control", "list-item", "card", "divider", "badge", "chart-mark", "container", "decoration", "collection", "chart-host"] },
                 "bounds": { "$ref": "#/definitions/bounds" },
                 "content": { "type": "string" },
-                "token_refs": { "type": "array", "items": { "type": "string" }, "description": "Names of tokens this element uses (color/typography/radius...)" }
+                "maps_to": { "type": "string" },
+                "item_count": { "type": "integer", "minimum": 1 },
+                "min_items": { "type": "integer", "minimum": 1 },
+                "first_item_content": { "type": "string" },
+                "item_bounds": {
+                  "type": "array",
+                  "description": "Measured row/item rectangles for collection elements; codegen should map data rows into these slots.",
+                  "items": {
+                    "type": "object",
+                    "required": ["x", "y", "width", "height"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": { "type": "string" },
+                      "x": { "type": "integer" },
+                      "y": { "type": "integer" },
+                      "width": { "type": "integer", "minimum": 1 },
+                      "height": { "type": "integer", "minimum": 1 }
+                    }
+                  }
+                },
+                "requires_asset": {
+                  "type": "boolean",
+                  "description": "True when this icon/image/media element must render from a measured asset crop, not a hand-drawn approximation."
+                },
+                "asset_id": { "type": "string", "description": "Stable id from element-assets.json; DOM must expose it via data-element-asset-id." },
+                "asset_path": { "type": "string", "description": "Workbench/project-relative path to the measured asset crop." },
+                "asset_type": { "type": "string", "description": "Asset classification from element-assets.json, e.g. icon/image/avatar/logo/map." },
+                "asset_source": { "type": "string", "description": "How the asset was produced, e.g. primitive, region-track, ocr-text." },
+                "asset_role": { "type": "string", "description": "Rendering role, e.g. element-asset or chart-reference-backing." },
+                "asset_policy": { "type": "string", "description": "Optional policy used by codegen/materialization. For icon elements, 'trivial-vector' is the only non-asset exception for simple geometric glyphs." },
+                "render_asset_in_library": { "type": "boolean", "description": "False for chart/map reference backings that feed structural comparison but should not render as a raw img." },
+                "token_refs": { "type": "array", "items": { "type": "string" }, "description": "Names of tokens this element uses (color/typography/radius...)" },
+                "style": { "$ref": "#/definitions/styleContract" },
+                "runs": {
+                  "type": "array",
+                  "description": "Composite typography spans for one text element; generated DOM must render one data-run node per entry.",
+                  "items": {
+                    "type": "object",
+                    "required": ["text", "style"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "text": { "type": "string" },
+                      "role": { "type": "string" },
+                      "style": { "$ref": "#/definitions/styleContract" }
+                    }
+                  }
+                }
               }
             }
           },
@@ -259,6 +310,92 @@
         "y": { "type": "integer", "minimum": 0 },
         "width": { "type": "integer", "minimum": 1 },
         "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "styleContract": {
+      "type": "object",
+      "required": ["expected"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": "string", "description": "Where this style fact came from, e.g. measured, sampled, vlm-hint, project-token." },
+        "expected": { "$ref": "#/definitions/styleExpected" },
+        "tolerance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "font_size_px": { "type": "number", "minimum": 0 },
+            "font_weight": { "type": "number", "minimum": 0 },
+            "color_rgb_max": { "type": "number", "minimum": 0 },
+            "line_height_px": { "type": "number", "minimum": 0 },
+            "letter_spacing_px": { "type": "number", "minimum": 0 },
+            "border_radius_px": { "type": "number", "minimum": 0 },
+            "border_width_px": { "type": "number", "minimum": 0 },
+            "opacity": { "type": "number", "minimum": 0 }
+          }
+        },
+        "severity": { "enum": ["error", "warn"], "default": "error" }
+      }
+    },
+    "styleExpected": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "font_size_px": { "type": "number", "minimum": 0 },
+        "font_weight": { "oneOf": [{ "type": "number" }, { "type": "string" }] },
+        "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "line_height_px": { "type": "number", "minimum": 0 },
+        "letter_spacing_px": { "type": "number" },
+        "text_align": { "type": "string" },
+        "vertical_align": { "type": "string" },
+        "text_transform": { "type": "string" },
+        "position": { "type": "string" },
+        "z_index": { "type": ["number", "null"] },
+        "font_family": { "type": "string" },
+        "background_color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "border_radius_px": { "type": "number", "minimum": 0 },
+        "border_width_px": { "type": "number", "minimum": 0 },
+        "border_style": { "type": "string" },
+        "border_color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "box_shadow": { "type": "string" },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "composition": {
+      "type": "object",
+      "required": ["background", "foreground"],
+      "additionalProperties": false,
+      "description": "Optional region-level foreground/background split. Backgrounds such as photos/maps/charts may be island or approximation assets; foreground overlays must remain component DOM with addressable data-element ids.",
+      "properties": {
+        "background": {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["photo", "map", "chart", "gradient", "solid", "video", "scene-3d"] },
+            "asset_policy": {
+              "enum": ["inpaint-clean", "crop", "none"],
+              "default": "inpaint-clean",
+              "description": "inpaint-clean: generate a cleaned background asset with foreground overlays removed; crop: raw crop, only valid without foreground; none: DOM/CSS background."
+            },
+            "asset_element_id": { "type": "string", "description": "data-element id of the background asset node." },
+            "library": { "type": "string", "description": "Renderer for chart/map/3D backgrounds, e.g. echarts/leaflet/three." },
+            "generated_asset_path": { "type": "string", "description": "Project/workbench-relative cleaned asset produced from this composition contract." }
+          }
+        },
+        "foreground": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["component_id", "z"],
+            "additionalProperties": false,
+            "properties": {
+              "component_id": { "type": "string", "description": "data-element id of the component overlay; must not be baked into the background." },
+              "z": { "type": "integer", "minimum": 1 },
+              "bounds": { "$ref": "#/definitions/bounds" }
+            }
+          }
+        }
       }
     }
   }

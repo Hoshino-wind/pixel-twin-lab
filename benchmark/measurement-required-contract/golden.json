@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "name": "good-measured-blueprint",
+      "file": "good-measured-blueprint.json",
+      "copy_files": ["measured-primitives.json"],
+      "expect_pass": true
+    },
+    {
+      "name": "bad-unmeasured-blueprint",
+      "file": "bad-unmeasured-blueprint.json",
+      "expect_pass": false,
+      "expect_issue_substrings": [
+        "measured-primitives.json not found",
+        "element bounds are unbacked by measurement"
+      ]
+    },
+    {
+      "name": "bad-unmeasured-component-bounds",
+      "file": "bad-unmeasured-component-bounds.json",
+      "copy_files": ["measured-primitives.json"],
+      "expect_pass": false,
+      "expect_issue_substrings": [
+        "component 'status-card-shell' surface bounds",
+        "not backed by measurement"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    html, body {
+      margin: 0;
+      width: 360px;
+      height: 220px;
+      background: #f8fafc;
+      color: #0f172a;
+      font-family: Arial, sans-serif;
+    }
+    .stage {
+      position: relative;
+      width: 360px;
+      height: 220px;
+      background: #f8fafc;
+    }
+    .audit-list {
+      position: absolute;
+      left: 24px;
+      top: 24px;
+      width: 312px;
+      height: 156px;
+      box-sizing: border-box;
+      border: 1px solid #d8e0ea;
+      border-radius: 8px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+    .audit-row {
+      display: grid;
+      grid-template-columns: 56px 1fr 104px;
+      align-items: center;
+      height: 52px;
+      box-sizing: border-box;
+      padding: 0 12px;
+      border-bottom: 1px solid #edf1f5;
+      font-size: 13px;
+      line-height: 18px;
+    }
+    .audit-row:last-child {
+      border-bottom: 0;
+    }
+    .time {
+      color: #64748b;
+    }
+    .action {
+      color: #2563eb;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div data-element="audit-log-list" class="audit-list">
+      <div class="audit-row">
+        <span class="time">14:34</span>
+        <span>aria.morgan</span>
+        <span class="action">Update Deployment</span>
+      </div>
+      <div class="audit-row">
+        <span class="time">14:31</span>
+        <span>deploy-bot</span>
+        <span class="action">Create Deployment</span>
+      </div>
+      <div class="audit-row">
+        <span class="time">14:30</span>
+        <span>monitoring</span>
+        <span class="action">Trigger Alert</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

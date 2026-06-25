@@ -21,8 +21,8 @@ description: 把 UI 图片(截图、Image Gen 结果或 mockup)拆解成六层�
 ## 环境依赖
 
 - Python：`pip install -r scripts/requirements.txt`(Pillow 和 numpy 都是必需依赖)。
-- 截图:`npm install` 安装完整 `playwright` 包;再运行 `npm run install:browsers` 安装自带 Chromium。也可用 `playwright-core` 加系统 Chrome/Chromium(macOS/Linux/Windows 自动探测,也可设 `CHROME_PATH`)。
-- 运行前自检:`python3 -c "import PIL, numpy"` 和 `node -e "require('playwright')"`(使用 `--browser system` 时可改查 `playwright-core`)。
+- 截图:`npm install` 安装完整 `playwright` 包;再运行 `npm run install:browsers` 安装自带 Chromium。自动回测必须使用自带 Chromium,不走系统 Chrome。
+- 运行前自检:`python3 -c "import PIL, numpy"` 和 `node -e "require('playwright')"`。
 
 ## 蓝图工作流(主流程)
 
@@ -183,7 +183,7 @@ node /path/to/pixel-twin-lab/scripts/capture_modes.cjs \
   --out-dir /absolute/path/outputs/pixel-twin
 ```
 
-`--browser bundled|system` 选择 Playwright 自带 Chromium 或系统 Chrome(用 `playwright-core` 时默认 `system`)。Chromium 启动时强制 sRGB 色彩配置,避免截图继承显示器配置导致整图颜色漂移(macOS 上尤其明显)。每次运行会写出 `capture-meta.json`,记录浏览器版本、色彩配置和 viewport,便于跨机器对比时归因。
+`--browser bundled` 使用 Playwright 自带 Chromium，是自动回测的固定路径。`--browser system` 只允许一次性本地调试，并且必须额外设置 `PIXEL_TWIN_ALLOW_SYSTEM_BROWSER=1`，因为启动系统 Chrome 会触发 Codex GUI/沙箱提权。Chromium 启动时强制 sRGB 色彩配置,避免截图继承显示器配置导致整图颜色漂移(macOS 上尤其明显)。每次运行会写出 `capture-meta.json`,记录浏览器版本、色彩配置和 viewport,便于跨机器对比时归因。
 
 生成 diff 指标：
 

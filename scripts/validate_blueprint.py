@@ -25,14 +25,16 @@ REGION_ROLES = {
     "list", "chart", "media", "footer", "modal", "other",
 }
 REGION_TRACKS = {"component", "island", "approximation"}
+COMPOSITION_BACKGROUND_KINDS = {"photo", "map", "chart", "gradient", "solid", "video", "scene-3d"}
+COMPOSITION_ASSET_POLICIES = {"inpaint-clean", "crop", "none"}
 RELATION_TYPES = {"row", "column", "grid", "stack", "absolute-fallback"}
 RELATION_ALIGNS = {"start", "center", "end", "stretch", "space-between"}
 COMPONENT_TYPES = {
-    "affix", "alert", "anchor", "app", "auto-complete", "avatar", "badge", "breadcrumb",
+    "affix", "alert", "anchor", "app", "auto-complete", "avatar", "badge", "border-beam", "breadcrumb",
     "button", "calendar", "card", "carousel", "cascader", "checkbox", "collapse",
     "color-picker", "config-provider", "date-picker", "descriptions", "divider", "drawer",
     "dropdown", "empty", "flex", "float-button", "form", "grid", "icon", "image", "input",
-    "input-number", "layout", "list", "mentions", "menu", "message", "modal", "notification",
+    "input-number", "layout", "list", "masonry", "mentions", "menu", "message", "modal", "notification",
     "pagination", "popconfirm", "popover", "progress", "qr-code", "radio", "rate", "result",
     "segmented", "select", "skeleton", "slider", "space", "spin", "splitter", "statistic",
     "steps", "switch", "table", "tabs", "tag", "time-picker", "timeline", "tooltip", "tour",
@@ -43,8 +45,8 @@ COMPONENT_TYPES = {
 COMPONENT_CATEGORIES = {"general", "layout", "navigation", "data-entry", "data-display", "feedback", "other", "custom"}
 COMPONENT_CATEGORY_BY_TYPE = {
     **{name: "general" for name in {"button", "float-button", "icon", "typography"}},
-    **{name: "layout" for name in {"divider", "flex", "grid", "layout", "space"}},
-    **{name: "navigation" for name in {"anchor", "breadcrumb", "dropdown", "menu", "pagination", "steps"}},
+    **{name: "layout" for name in {"divider", "flex", "grid", "layout", "masonry", "space", "splitter"}},
+    **{name: "navigation" for name in {"anchor", "breadcrumb", "dropdown", "menu", "pagination", "steps", "tabs"}},
     **{name: "data-entry" for name in {
         "auto-complete", "cascader", "checkbox", "color-picker", "date-picker", "form",
         "input", "input-number", "mentions", "radio", "rate", "select", "slider", "switch",
@@ -52,18 +54,19 @@ COMPONENT_CATEGORY_BY_TYPE = {
     }},
     **{name: "data-display" for name in {
         "avatar", "badge", "calendar", "card", "carousel", "collapse", "descriptions", "empty",
-        "image", "list", "popover", "qr-code", "segmented", "statistic", "table", "tabs",
+        "image", "list", "popover", "qr-code", "segmented", "statistic", "table",
         "tag", "timeline", "tooltip", "tour", "tree",
     }},
     **{name: "feedback" for name in {
         "alert", "drawer", "message", "modal", "notification", "popconfirm", "progress",
         "result", "skeleton", "spin", "watermark",
     }},
-    **{name: "other" for name in {"affix", "app", "config-provider", "splitter"}},
+    **{name: "other" for name in {"affix", "app", "border-beam", "config-provider"}},
 }
+ANTD_NATIVE_COMPONENT_TYPES = set(COMPONENT_CATEGORY_BY_TYPE)
 ELEMENT_TYPES = {
     "text", "icon", "image", "control", "list-item", "card", "divider", "badge",
-    "chart-mark", "container", "decoration",
+    "chart-mark", "container", "decoration", "collection", "chart-host",
 }
 TYPOGRAPHY_WEIGHTS = {"regular", "medium", "semibold", "bold"}
 INTERACTION_TRIGGERS = {
@@ -83,9 +86,46 @@ DATA_SHAPES = {"rows", "items", "series", "keyvalue", "tree", "geo"}
 DATA_SOURCES = {"extracted", "approximated"}
 # Component types that must be data-driven: a missing data entry means codegen would
 # hard-code content nodes (lists/tables) or draw data shapes by hand (charts).
-DATA_REQUIRED_COMPONENT_TYPES = {"table", "list", "chart-container"}
-DATA_RECOMMENDED_COMPONENT_TYPES = {"map-container"}
+DATA_REQUIRED_COMPONENT_TYPES = {"table", "list", "timeline", "chart-container"}
+DATA_RECOMMENDED_COMPONENT_TYPES = {"map-container", "statistic"}
+DATA_SHAPES_BY_COMPONENT_TYPE = {
+    "table": {"rows"},
+    "list": {"items"},
+    "timeline": {"items"},
+    "chart-container": {"series"},
+    "map-container": {"geo"},
+    "statistic": {"keyvalue"},
+}
+COLLECTION_REQUIRED_COMPONENT_TYPES = {"table", "list", "timeline"}
+SURFACE_STYLE_REQUIRED_COMPONENT_TYPES = {
+    "card", "container", "list", "table", "statistic", "descriptions",
+    "chart-container", "map-container", "media", "modal", "drawer", "popover",
+}
+SURFACE_STYLE_REQUIRED_FIELDS = {"background_color"}
+SURFACE_STYLE_SHAPE_FIELDS = {"border_radius_px", "border_width_px", "border_color", "box_shadow"}
+SURFACE_MEASUREMENT_EXCLUDED_KINDS = {"text-line", "icon-or-badge"}
+ASSET_REQUIRED_ELEMENT_TYPES = {"icon", "image"}
+TRIVIAL_VECTOR_ASSET_POLICIES = {"trivial-vector", "geometric-svg"}
 ARRAY_DATA_SHAPES = {"rows", "items", "series"}
+ASSET_ELEMENT_FIELDS = {
+    "asset_id", "asset_path", "asset_role", "asset_source", "asset_type",
+    "asset_policy", "render_asset_in_library",
+}
+STYLE_EXPECTED_FIELDS = {
+    "font_size_px", "font_weight", "color", "line_height_px", "letter_spacing_px",
+    "text_align", "vertical_align", "text_transform", "position", "z_index",
+    "font_family", "background_color", "border_radius_px", "border_width_px",
+    "border_style", "border_color", "box_shadow", "opacity",
+}
+STYLE_TOLERANCE_FIELDS = {
+    "font_size_px", "font_weight", "color_rgb_max", "line_height_px",
+    "letter_spacing_px", "border_radius_px", "border_width_px", "opacity",
+}
+STYLE_COLOR_FIELDS = {"color", "background_color", "border_color"}
+STYLE_NUMERIC_FIELDS = {
+    "font_size_px", "line_height_px", "letter_spacing_px", "border_radius_px",
+    "border_width_px", "opacity",
+}
 
 
 def load_json(path: Path, fallback: Any) -> Any:
@@ -175,6 +215,70 @@ def check_bounds(log: IssueLog, layer: str, path: str, bounds: Any) -> dict[str,
     return {"x": bounds["x"], "y": bounds["y"], "width": bounds["width"], "height": bounds["height"]}
 
 
+def validate_style_contract(log: IssueLog, layer: str, path: str, contract: Any) -> None:
+    if contract is None:
+        return
+    if not check_object(log, layer, path, contract, ["expected"], {"source", "expected", "tolerance", "severity"}):
+        return
+    if "source" in contract and not isinstance(contract["source"], str):
+        log.error(layer, path, f"source must be a string, got {contract['source']!r}")
+    expected = contract.get("expected")
+    if not check_object(log, layer, f"{path}.expected", expected, [], STYLE_EXPECTED_FIELDS):
+        return
+    if not expected:
+        log.error(layer, f"{path}.expected", "expected must contain at least one style property")
+    for field in STYLE_COLOR_FIELDS:
+        if field in expected and not is_hex_color(expected[field]):
+            log.error(layer, f"{path}.expected", f"{field} must match ^#[0-9a-fA-F]{{6}}$, got {expected[field]!r}")
+    for field in STYLE_NUMERIC_FIELDS:
+        if field in expected and not is_number(expected[field]):
+            log.error(layer, f"{path}.expected", f"{field} must be a number, got {expected[field]!r}")
+    if "z_index" in expected and expected["z_index"] is not None and not is_number(expected["z_index"]):
+        log.error(layer, f"{path}.expected", f"z_index must be a number or null, got {expected['z_index']!r}")
+    if "font_weight" in expected and not (is_number(expected["font_weight"]) or isinstance(expected["font_weight"], str)):
+        log.error(layer, f"{path}.expected", f"font_weight must be a number or string, got {expected['font_weight']!r}")
+    string_fields = STYLE_EXPECTED_FIELDS - STYLE_COLOR_FIELDS - STYLE_NUMERIC_FIELDS - {"z_index", "font_weight"}
+    for field in string_fields:
+        if field in expected and not isinstance(expected[field], str):
+            log.error(layer, f"{path}.expected", f"{field} must be a string, got {expected[field]!r}")
+    tolerance = contract.get("tolerance")
+    if tolerance is not None and check_object(log, layer, f"{path}.tolerance", tolerance, [], STYLE_TOLERANCE_FIELDS):
+        for field, value in tolerance.items():
+            if not is_number(value) or value < 0:
+                log.error(layer, f"{path}.tolerance", f"{field} must be a non-negative number, got {value!r}")
+    if "severity" in contract and contract["severity"] not in {"error", "warn"}:
+        log.error(layer, path, f"severity must be 'error' or 'warn', got {contract['severity']!r}")
+
+
+def validate_surface_style_completeness(
+    log: IssueLog,
+    path: str,
+    component_id: Any,
+    component_type: Any,
+    contract: Any,
+) -> None:
+    if not isinstance(contract, dict):
+        return
+    expected = contract.get("expected")
+    if not isinstance(expected, dict):
+        return
+    missing = sorted(field for field in SURFACE_STYLE_REQUIRED_FIELDS if field not in expected)
+    if missing:
+        log.error(
+            "components",
+            f"{path}.style.expected",
+            f"component '{component_id}' (type '{component_type}') surface style contract must include "
+            f"{', '.join(missing)} so the component root fill is verifiable",
+        )
+    if not any(field in expected for field in SURFACE_STYLE_SHAPE_FIELDS):
+        log.error(
+            "components",
+            f"{path}.style.expected",
+            f"component '{component_id}' (type '{component_type}') surface style contract must include at least one "
+            "shape/boundary property: border_radius_px, border_width_px, border_color, or box_shadow",
+        )
+
+
 def check_enum(log: IssueLog, layer: str, path: str, field: str, value: Any, allowed: set[str], required: bool) -> bool:
     if value is None and not required:
         return True
@@ -221,6 +325,77 @@ def boxes_match(blueprint_box: dict[str, int], measured_box: dict[str, int], tol
     return iou(blueprint_box, measured_box) >= 0.3
 
 
+def surface_bounds_match(blueprint_box: dict[str, int], measured_box: dict[str, int], tolerance: int) -> bool:
+    deltas = [
+        abs(blueprint_box["x"] - measured_box["x"]),
+        abs(blueprint_box["y"] - measured_box["y"]),
+        abs(blueprint_box["width"] - measured_box["width"]),
+        abs(blueprint_box["height"] - measured_box["height"]),
+    ]
+    if max(deltas) <= tolerance:
+        return True
+    return iou(blueprint_box, measured_box) >= 0.85
+
+
+def validate_collection_item_bounds(
+    log: IssueLog,
+    path: str,
+    element: dict[str, Any],
+    element_bounds: dict[str, int] | None,
+) -> None:
+    if "item_bounds" not in element:
+        return
+    raw_items = element.get("item_bounds")
+    if not isinstance(raw_items, list):
+        log.error("components", f"{path}.item_bounds", f"item_bounds must be an array, got {type(raw_items).__name__}")
+        return
+    if element.get("type") != "collection":
+        log.error("components", f"{path}.item_bounds", "item_bounds is only valid for collection elements")
+        return
+    if not raw_items:
+        log.error("components", f"{path}.item_bounds", "item_bounds must contain at least one measured row/item bounds entry")
+        return
+    valid_count = 0
+    for item_index, item in enumerate(raw_items):
+        item_path = f"{path}.item_bounds[{item_index}]"
+        if not check_object(
+            log,
+            "components",
+            item_path,
+            item,
+            ["x", "y", "width", "height"],
+            {"id", "x", "y", "width", "height"},
+        ):
+            continue
+        if "id" in item and not isinstance(item["id"], str):
+            log.error("components", f"{item_path}.id", f"id must be a string, got {item['id']!r}")
+        bounds_ok = True
+        for field, minimum in (("x", 0), ("y", 0), ("width", 1), ("height", 1)):
+            value = item.get(field)
+            if not is_int(value):
+                log.error("components", f"{item_path}.{field}", f"{field} must be an integer, got {value!r}")
+                bounds_ok = False
+            elif value < minimum:
+                log.error("components", f"{item_path}.{field}", f"{field} must be >= {minimum}, got {value}")
+                bounds_ok = False
+        if not bounds_ok:
+            continue
+        bounds = {"x": item["x"], "y": item["y"], "width": item["width"], "height": item["height"]}
+        valid_count += 1
+        if element_bounds and not point_in_bounds(*bounds_center(bounds), element_bounds, 2):
+            log.error(
+                "components",
+                item_path,
+                f"item bounds center must sit inside collection bounds {element_bounds}, got {bounds}",
+            )
+    item_count = element.get("item_count")
+    min_items = element.get("min_items")
+    if is_int(item_count) and valid_count != int(item_count):
+        log.error("components", f"{path}.item_bounds", f"item_bounds length {valid_count} must equal item_count {item_count}")
+    if is_int(min_items) and valid_count < int(min_items):
+        log.error("components", f"{path}.item_bounds", f"item_bounds length {valid_count} must be >= min_items {min_items}")
+
+
 # ---------------------------------------------------------------------------
 # Layer A: structural validation (handwritten against ui-blueprint.schema.json)
 # ---------------------------------------------------------------------------
@@ -245,6 +420,70 @@ def validate_source(log: IssueLog, blueprint: dict[str, Any]) -> tuple[int, int]
     return (canvas[0], canvas[1])
 
 
+def validate_composition(log: IssueLog, path: str, composition: Any) -> None:
+    if not check_object(log, "layout", path, composition, ["background", "foreground"], {"background", "foreground"}):
+        return
+    background = composition.get("background")
+    foreground = composition.get("foreground")
+    if check_object(
+        log,
+        "layout",
+        f"{path}.background",
+        background,
+        ["kind"],
+        {"kind", "asset_policy", "asset_element_id", "library", "generated_asset_path"},
+    ):
+        if "kind" in background:
+            check_enum(log, "layout", f"{path}.background", "kind", background.get("kind"), COMPOSITION_BACKGROUND_KINDS, True)
+        if "asset_policy" in background:
+            check_enum(
+                log,
+                "layout",
+                f"{path}.background",
+                "asset_policy",
+                background.get("asset_policy"),
+                COMPOSITION_ASSET_POLICIES,
+                False,
+            )
+        for field in ("asset_element_id", "library", "generated_asset_path"):
+            if field in background and not isinstance(background[field], str):
+                log.error("layout", f"{path}.background", f"{field} must be a string, got {background[field]!r}")
+        policy = background.get("asset_policy") or "inpaint-clean"
+        if policy != "none" and not isinstance(background.get("asset_element_id"), str):
+            log.error("layout", f"{path}.background", "asset_element_id is required when asset_policy is not 'none'")
+    else:
+        background = {}
+
+    if not isinstance(foreground, list):
+        log.error("layout", f"{path}.foreground", "foreground must be an array")
+        foreground = []
+    seen: set[str] = set()
+    for index, entry in enumerate(foreground):
+        entry_path = f"{path}.foreground[{index}]"
+        if not check_object(log, "layout", entry_path, entry, ["component_id", "z"], {"component_id", "z", "bounds"}):
+            continue
+        component_id = entry.get("component_id")
+        if not isinstance(component_id, str) or not component_id:
+            log.error("layout", entry_path, f"component_id must be a non-empty string, got {component_id!r}")
+        elif component_id in seen:
+            log.error("layout", entry_path, f"duplicate foreground component_id '{component_id}'")
+        else:
+            seen.add(component_id)
+        z = entry.get("z")
+        if not is_int(z) or z < 1:
+            log.error("layout", entry_path, f"z must be an integer >= 1, got {z!r}")
+        if "bounds" in entry:
+            check_bounds(log, "layout", f"{entry_path}.bounds", entry.get("bounds"))
+
+    bg_id = background.get("asset_element_id") if isinstance(background, dict) else None
+    if isinstance(bg_id, str) and bg_id in seen:
+        log.error("layout", path, f"background asset_element_id '{bg_id}' is also declared as a foreground overlay")
+    if foreground and isinstance(background, dict) and (background.get("asset_policy") or "inpaint-clean") == "crop":
+        log.error("layout", f"{path}.background", "asset_policy 'crop' is invalid when foreground overlays exist; use 'inpaint-clean' or 'none'")
+    if isinstance(background, dict) and background.get("kind") in {"map", "chart", "scene-3d"} and not isinstance(background.get("library"), str):
+        log.warning("layout", f"{path}.background", f"kind '{background.get('kind')}' should declare a rendering library")
+
+
 def validate_layout(log: IssueLog, blueprint: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
     regions: dict[str, dict[str, Any]] = {}
     relations: list[dict[str, Any]] = []
@@ -259,7 +498,7 @@ def validate_layout(log: IssueLog, blueprint: dict[str, Any]) -> tuple[dict[str,
     for index, region in enumerate(raw_regions):
         path = f"layout.regions[{index}]"
         if not check_object(log, "layout", path, region, ["name", "bounds", "role", "track"],
-                            {"name", "bounds", "role", "track", "parent", "notes"}):
+                            {"name", "bounds", "role", "track", "composition", "parent", "notes"}):
             continue
         name = region.get("name")
         if "name" in region and check_kebab(log, "layout", path, "name", name):
@@ -274,8 +513,10 @@ def validate_layout(log: IssueLog, blueprint: dict[str, Any]) -> tuple[dict[str,
             log.error("layout", path, f"parent must be a string, got {region['parent']!r}")
         if "notes" in region and not isinstance(region["notes"], str):
             log.error("layout", path, f"notes must be a string, got {region['notes']!r}")
+        if "composition" in region:
+            validate_composition(log, f"{path}.composition", region.get("composition"))
         if is_kebab(name) and name not in regions:
-            regions[name] = {"bounds": bounds, "track": region.get("track"), "path": path}
+            regions[name] = {"bounds": bounds, "track": region.get("track"), "composition": region.get("composition"), "path": path}
 
     for index, region in enumerate(raw_regions):
         if isinstance(region, dict) and isinstance(region.get("parent"), str) and region["parent"] not in regions:
@@ -327,7 +568,7 @@ def validate_components(log: IssueLog, blueprint: dict[str, Any], regions: dict[
     for index, component in enumerate(raw):
         path = f"components[{index}]"
         if not check_object(log, "components", path, component, ["id", "region", "category", "type", "bounds"],
-                            {"id", "region", "category", "type", "bounds", "content", "maps_to", "elements", "notes"}):
+                            {"id", "region", "category", "type", "bounds", "content", "maps_to", "style", "elements", "notes"}):
             continue
         component_id = component.get("id")
         if "id" in component and check_kebab(log, "components", path, "id", component_id):
@@ -343,10 +584,10 @@ def validate_components(log: IssueLog, blueprint: dict[str, Any], regions: dict[
             and component.get("category") in COMPONENT_CATEGORIES
             and component.get("category") != expected_category
         ):
-            log.warning(
+            log.error(
                 "components",
                 path,
-                f"type '{component.get('type')}' usually belongs to category '{expected_category}', "
+                f"type '{component.get('type')}' belongs to AntD category '{expected_category}', "
                 f"got '{component.get('category')}'",
             )
         bounds = check_bounds(log, "components", f"{path}.bounds", component.get("bounds")) if "bounds" in component else None
@@ -359,6 +600,8 @@ def validate_components(log: IssueLog, blueprint: dict[str, Any], regions: dict[
         for field in ("content", "maps_to", "notes"):
             if field in component and not isinstance(component[field], str):
                 log.error("components", path, f"{field} must be a string, got {component[field]!r}")
+        if "style" in component:
+            validate_style_contract(log, "components", f"{path}.style", component.get("style"))
 
         elements: list[dict[str, Any]] = []
         raw_elements = component.get("elements")
@@ -367,8 +610,19 @@ def validate_components(log: IssueLog, blueprint: dict[str, Any], regions: dict[
             raw_elements = None
         for element_index, element in enumerate(raw_elements or []):
             element_path = f"{path}.elements[{element_index}]"
-            if not check_object(log, "components", element_path, element, ["id", "type", "bounds"],
-                                {"id", "type", "bounds", "content", "token_refs"}):
+            if not check_object(
+                log,
+                "components",
+                element_path,
+                element,
+                ["id", "type", "bounds"],
+                {
+                    "id", "type", "bounds", "content", "maps_to", "item_count", "min_items",
+                    "first_item_content", "item_bounds", "requires_asset", "asset_id", "asset_path", "asset_type",
+                    "asset_source", "asset_role", "asset_policy", "render_asset_in_library", "token_refs",
+                    "style", "runs",
+                },
+            ):
                 continue
             if "id" in element and not isinstance(element["id"], str):
                 log.error("components", element_path, f"id must be a string, got {element['id']!r}")
@@ -377,10 +631,122 @@ def validate_components(log: IssueLog, blueprint: dict[str, Any], regions: dict[
             element_bounds = check_bounds(log, "components", f"{element_path}.bounds", element.get("bounds")) if "bounds" in element else None
             if "content" in element and not isinstance(element["content"], str):
                 log.error("components", element_path, f"content must be a string, got {element['content']!r}")
+            if "maps_to" in element and not isinstance(element["maps_to"], str):
+                log.error("components", element_path, f"maps_to must be a string, got {element['maps_to']!r}")
+            for field in ("item_count", "min_items"):
+                if field in element and (not is_int(element[field]) or element[field] < 1):
+                    log.error("components", element_path, f"{field} must be an integer >= 1, got {element[field]!r}")
+            if "first_item_content" in element and not isinstance(element["first_item_content"], str):
+                log.error("components", element_path, f"first_item_content must be a string, got {element['first_item_content']!r}")
+            if element.get("type") == "collection" and "item_count" not in element and "min_items" not in element:
+                log.error("components", element_path, "collection elements must declare item_count or min_items")
+            validate_collection_item_bounds(log, element_path, element, element_bounds)
+            if "requires_asset" in element and not isinstance(element["requires_asset"], bool):
+                log.error("components", element_path, f"requires_asset must be a boolean, got {element['requires_asset']!r}")
+            if "render_asset_in_library" in element and not isinstance(element["render_asset_in_library"], bool):
+                log.error("components", element_path, f"render_asset_in_library must be a boolean, got {element['render_asset_in_library']!r}")
+            for field in ASSET_ELEMENT_FIELDS:
+                if field in element and field != "render_asset_in_library" and not isinstance(element[field], str):
+                    log.error("components", element_path, f"{field} must be a string, got {element[field]!r}")
+            asset_policy = str(element.get("asset_policy") or "")
+            has_asset_metadata = any(
+                bool(element.get(field))
+                for field in ASSET_ELEMENT_FIELDS
+                if field not in {"render_asset_in_library", "asset_policy"}
+            ) or (bool(asset_policy) and asset_policy not in TRIVIAL_VECTOR_ASSET_POLICIES)
+            if has_asset_metadata and element.get("requires_asset") is not True:
+                log.error(
+                    "components",
+                    element_path,
+                    "asset metadata requires requires_asset: true so codegen and DOM verification cannot treat it as an optional drawing hint",
+                )
+            if element.get("requires_asset") is True and not str(element.get("asset_id") or "").strip():
+                log.error(
+                    "components",
+                    element_path,
+                    "requires_asset elements must declare asset_id from element-assets.json; hand-drawn svg/icon fallback is not allowed",
+                )
+            if (
+                element.get("type") in ASSET_REQUIRED_ELEMENT_TYPES
+                and element.get("requires_asset") is not True
+                and not (element.get("type") == "icon" and asset_policy in TRIVIAL_VECTOR_ASSET_POLICIES)
+            ):
+                log.error(
+                    "components",
+                    element_path,
+                    f"element type '{element.get('type')}' must declare requires_asset: true with asset_id; "
+                    "icons/images are asset islands by default. Use asset_policy 'trivial-vector' only for simple geometric glyph icons.",
+                )
             token_refs = element.get("token_refs")
             if "token_refs" in element and (not isinstance(token_refs, list) or any(not isinstance(t, str) for t in token_refs)):
                 log.error("components", element_path, "token_refs must be an array of strings")
-            elements.append({"id": element.get("id"), "bounds": element_bounds, "path": element_path, "token_refs": token_refs or []})
+            if "style" in element:
+                validate_style_contract(log, "components", f"{element_path}.style", element.get("style"))
+            runs = element.get("runs")
+            if "runs" in element:
+                if not isinstance(runs, list):
+                    log.error("components", f"{element_path}.runs", "runs must be an array")
+                else:
+                    for run_index, run in enumerate(runs):
+                        run_path = f"{element_path}.runs[{run_index}]"
+                        if not check_object(log, "components", run_path, run, ["text", "style"], {"text", "role", "style"}):
+                            continue
+                        if "text" in run and not isinstance(run["text"], str):
+                            log.error("components", run_path, f"text must be a string, got {run['text']!r}")
+                        if "role" in run and not isinstance(run["role"], str):
+                            log.error("components", run_path, f"role must be a string, got {run['role']!r}")
+                        validate_style_contract(log, "components", f"{run_path}.style", run.get("style"))
+            elements.append(
+                {
+                    "id": element.get("id"),
+                    "type": element.get("type"),
+                    "bounds": element_bounds,
+                    "path": element_path,
+                    "token_refs": token_refs or [],
+                }
+            )
+
+        component_type = component.get("type")
+        element_types = {element.get("type") for element in raw_elements or [] if isinstance(element, dict)}
+        region_track = regions.get(str(region_name or ""), {}).get("track") if isinstance(region_name, str) else None
+        if region_track == "component" and not elements:
+            log.error(
+                "components",
+                path,
+                f"component '{component_id}' is in component-track region '{region_name}' but declares no elements; "
+                "componentized restoration requires addressable data-element children for verification/codegen",
+            )
+        if (
+            region_track == "component"
+            and component_type in SURFACE_STYLE_REQUIRED_COMPONENT_TYPES
+            and not isinstance(component.get("style"), dict)
+        ):
+            log.error(
+                "components",
+                path,
+                f"component '{component_id}' (type '{component_type}') is in component-track region '{region_name}' "
+                "but has no root style contract; card/list/table/statistic/container surfaces must declare component.style.expected",
+            )
+        if (
+            region_track == "component"
+            and component_type in SURFACE_STYLE_REQUIRED_COMPONENT_TYPES
+            and isinstance(component.get("style"), dict)
+        ):
+            validate_surface_style_completeness(log, path, component_id, component_type, component.get("style"))
+        if component_type in COLLECTION_REQUIRED_COMPONENT_TYPES and "collection" not in element_types:
+            log.error(
+                "components",
+                path,
+                f"component '{component_id}' (type '{component_type}') must declare one collection element "
+                "so repeated rows/items can be verified through data-element-item nodes",
+            )
+        if component_type == "chart-container" and raw_elements and "chart-host" not in element_types:
+            log.error(
+                "components",
+                path,
+                f"component '{component_id}' (type 'chart-container') must declare a chart-host element "
+                "for the third-party chart render target",
+            )
 
         if isinstance(component_id, str) and component_id not in components:
             components[component_id] = {
@@ -579,6 +945,22 @@ def validate_data(log: IssueLog, blueprint: dict[str, Any], components: dict[str
             elif shape in DATA_SHAPES and not isinstance(mock_data, (list, dict)):
                 log.error("data", path, f"mock_data must be an array or object, got {type(mock_data).__name__}")
         component = components.get(component_id) if isinstance(component_id, str) else None
+        if component and isinstance(shape, str):
+            allowed_shapes = DATA_SHAPES_BY_COMPONENT_TYPE.get(str(component.get("type") or ""))
+            if allowed_shapes and shape not in allowed_shapes:
+                log.error(
+                    "data",
+                    path,
+                    f"component '{component_id}' (type '{component.get('type')}') requires data shape "
+                    f"{sorted(allowed_shapes)}, got '{shape}'",
+                )
+            if component.get("type") in {"table", "list", "timeline"} and entry.get("source") != "extracted":
+                log.error(
+                    "data",
+                    path,
+                    f"component '{component_id}' (type '{component.get('type')}') must use source 'extracted' "
+                    "because visible rows/items are transcribed from the reference",
+                )
         if component and component.get("type") == "chart-container" and not (isinstance(entry.get("library"), str) and entry["library"].strip()):
             log.error("data", path,
                       f"chart data for '{component_id}' must declare its rendering library (e.g. 'echarts'); "
@@ -670,7 +1052,137 @@ def check_component_region_coverage(log: IssueLog, regions: dict[str, dict[str, 
     covered = {component["region"] for component in components.values() if component.get("region")}
     for name, region in regions.items():
         if region.get("track") == "component" and name not in covered:
-            log.warning("layout", region["path"], f"track 'component' region '{name}' has no component declared in it")
+            log.error(
+                "layout",
+                region["path"],
+                f"track 'component' region '{name}' has no component declared in it; "
+                "every component-track region must be represented in components before codegen",
+            )
+
+
+def component_element_index(components: dict[str, dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    index: dict[str, list[dict[str, Any]]] = {}
+    for component_id, component in components.items():
+        for element in component.get("elements") or []:
+            element_id = element.get("id")
+            if not isinstance(element_id, str) or not element_id:
+                continue
+            index.setdefault(element_id, []).append(
+                {
+                    "component_id": component_id,
+                    "component_region": component.get("region"),
+                    "component_path": component.get("path"),
+                    "element_type": element.get("type"),
+                    "element_path": element.get("path"),
+                }
+            )
+    return index
+
+
+def validate_element_id_uniqueness(log: IssueLog, components: dict[str, dict[str, Any]]) -> None:
+    index = component_element_index(components)
+    for element_id, owners in sorted(index.items()):
+        component_ids = {owner.get("component_id") for owner in owners}
+        if len(owners) > 1 and len(component_ids) > 1:
+            paths = ", ".join(str(owner.get("element_path")) for owner in owners)
+            log.error(
+                "components",
+                "components.elements",
+                f"data-element id '{element_id}' is declared in multiple components ({paths}); "
+                "rendered data-element ids must be globally unique",
+            )
+
+
+def validate_composition_references(
+    log: IssueLog,
+    regions: dict[str, dict[str, Any]],
+    components: dict[str, dict[str, Any]],
+) -> None:
+    element_index = component_element_index(components)
+    component_ids = set(components)
+    asset_element_types = {"image", "chart-host", "container", "decoration"}
+
+    for region_name, region in regions.items():
+        composition = region.get("composition")
+        if not isinstance(composition, dict):
+            continue
+        path = f"{region.get('path')}.composition"
+        region_bounds = region.get("bounds") if isinstance(region.get("bounds"), dict) else None
+
+        background = composition.get("background") if isinstance(composition.get("background"), dict) else {}
+        background_id = background.get("asset_element_id") if isinstance(background, dict) else None
+        policy = background.get("asset_policy") or "inpaint-clean" if isinstance(background, dict) else "inpaint-clean"
+        generated_asset_path = background.get("generated_asset_path") if isinstance(background, dict) else None
+        if isinstance(background_id, str):
+            owners = element_index.get(background_id, [])
+            if owners:
+                for owner in owners:
+                    owner_region = owner.get("component_region")
+                    if owner_region != region_name:
+                        log.error(
+                            "layout",
+                            f"{path}.background",
+                            f"background asset_element_id '{background_id}' belongs to component region "
+                            f"'{owner_region}', not composition region '{region_name}'",
+                        )
+                    element_type = owner.get("element_type")
+                    if isinstance(element_type, str) and element_type not in asset_element_types:
+                        log.error(
+                            "layout",
+                            f"{path}.background",
+                            f"background asset_element_id '{background_id}' points to element type "
+                            f"'{element_type}', expected one of {sorted(asset_element_types)}",
+                        )
+            elif policy != "none" and not isinstance(generated_asset_path, str):
+                log.error(
+                    "layout",
+                    f"{path}.background",
+                    f"background asset_element_id '{background_id}' is not declared as a component element and "
+                    "no generated_asset_path is available for codegen",
+                )
+
+        foreground = composition.get("foreground") if isinstance(composition.get("foreground"), list) else []
+        for index, entry in enumerate(foreground):
+            if not isinstance(entry, dict):
+                continue
+            component_id = entry.get("component_id")
+            entry_path = f"{path}.foreground[{index}]"
+            if not isinstance(component_id, str) or not component_id:
+                continue
+            matched_component = component_id in component_ids
+            matched_elements = element_index.get(component_id, [])
+            if not matched_component and not matched_elements:
+                log.error(
+                    "layout",
+                    entry_path,
+                    f"foreground component_id '{component_id}' is not a declared component id or element id",
+                )
+                continue
+            if matched_component:
+                component_region = components[component_id].get("region")
+                if component_region != region_name:
+                    log.error(
+                        "layout",
+                        entry_path,
+                        f"foreground component_id '{component_id}' belongs to region '{component_region}', "
+                        f"not composition region '{region_name}'",
+                    )
+            for owner in matched_elements:
+                owner_region = owner.get("component_region")
+                if owner_region != region_name:
+                    log.error(
+                        "layout",
+                        entry_path,
+                        f"foreground element id '{component_id}' belongs to component region '{owner_region}', "
+                        f"not composition region '{region_name}'",
+                    )
+            bounds = entry.get("bounds")
+            if isinstance(bounds, dict) and region_bounds and not point_in_bounds(*bounds_center(bounds), region_bounds, 0):
+                log.error(
+                    "layout",
+                    f"{entry_path}.bounds",
+                    f"foreground bounds {bounds} center is outside composition region '{region_name}' bounds {region_bounds}",
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -723,6 +1235,69 @@ def load_measured_boxes(measured: Any) -> dict[str, list[dict[str, Any]]]:
                             "kind": str(primitive.get("kind") or "primitive")})
         boxes[str(region["name"])] = entries
     return boxes
+
+
+def load_measured_region_bounds(measured: Any) -> dict[str, dict[str, int]]:
+    regions: dict[str, dict[str, int]] = {}
+    if not isinstance(measured, dict):
+        return regions
+    for region in measured.get("regions") or []:
+        if not isinstance(region, dict) or not region.get("name"):
+            continue
+        bounds = region.get("bounds")
+        if not isinstance(bounds, dict) or any(key not in bounds for key in ("x", "y", "width", "height")):
+            continue
+        regions[str(region["name"])] = {key: int(bounds[key]) for key in ("x", "y", "width", "height")}
+    return regions
+
+
+def reconcile_component_surface_bounds(
+    log: IssueLog,
+    regions: dict[str, dict[str, Any]],
+    components: dict[str, dict[str, Any]],
+    measured_boxes: dict[str, list[dict[str, Any]]],
+    measured_region_bounds: dict[str, dict[str, int]],
+    tolerance: int,
+) -> dict[str, int]:
+    checked = 0
+    unbacked = 0
+    for component_id, component in components.items():
+        component_type = component.get("type")
+        region_name = component.get("region")
+        region = regions.get(region_name or "")
+        region_track = region.get("track") if region else None
+        bounds = component.get("bounds")
+        if (
+            region_track != "component"
+            or component_type not in SURFACE_STYLE_REQUIRED_COMPONENT_TYPES
+            or not bounds
+        ):
+            continue
+        checked += 1
+        backed = False
+        measured_region = measured_region_bounds.get(region_name or "")
+        if measured_region and surface_bounds_match(bounds, measured_region, tolerance):
+            backed = True
+        entries = measured_boxes.get(region_name or "") if region_name else None
+        if entries is None:
+            entries = [entry for region_entries in measured_boxes.values() for entry in region_entries]
+        surface_entries = [
+            entry for entry in entries
+            if entry.get("kind") not in SURFACE_MEASUREMENT_EXCLUDED_KINDS
+        ]
+        if not backed:
+            backed = any(surface_bounds_match(bounds, entry["bounds"], tolerance) for entry in surface_entries)
+        if not backed:
+            unbacked += 1
+            region_note = "no measured region bounds" if not measured_region else f"measured region bounds {measured_region}"
+            log.error(
+                "components",
+                component["path"],
+                f"component '{component_id}' surface bounds {bounds} not backed by measurement: "
+                f"{region_note}; no non-text/non-icon measured primitive matches within {tolerance}px or IoU >= 0.85 "
+                f"({len(surface_entries)} surface candidate boxes checked)",
+            )
+    return {"component_surface_bounds_checked": checked, "component_surface_bounds_unbacked": unbacked}
 
 
 def reconcile_elements(
@@ -884,6 +1459,11 @@ def main() -> None:
     )
     parser.add_argument("--bounds-tolerance", type=int, default=8, help="Px tolerance for bounds reconciliation")
     parser.add_argument("--color-tolerance", type=int, default=12, help="Max per-channel RGB delta for sampled colors")
+    parser.add_argument(
+        "--allow-unmeasured",
+        action="store_true",
+        help="Downgrade missing measured-primitives.json from error to warning. Use only for narrow schema/unit fixtures.",
+    )
     parser.add_argument("--json-name", default="blueprint-validation.json")
     parser.add_argument("--md-name", default="blueprint-validation.md")
     args = parser.parse_args()
@@ -925,6 +1505,8 @@ def main() -> None:
     if "implementation" in blueprint:
         validate_implementation(log, blueprint, components)
     validate_relation_references(log, relations, regions, components)
+    validate_element_id_uniqueness(log, components)
+    validate_composition_references(log, regions, components)
     check_component_region_coverage(log, regions, components)
 
     # --- Layer B: reconciliation against measurements ---
@@ -949,14 +1531,31 @@ def main() -> None:
         log.warning("source", "source.reference", f"reference image not found ({reference_path}); color sampling limited")
 
     measured_path = out_dir / "measured-primitives.json"
-    measured_boxes = load_measured_boxes(load_json(measured_path, None)) if measured_path.exists() else {}
+    measured_payload = load_json(measured_path, None) if measured_path.exists() else None
+    measured_boxes = load_measured_boxes(measured_payload) if measured_payload else {}
+    measured_region_bounds = load_measured_region_bounds(measured_payload) if measured_payload else {}
     reconciliation: dict[str, Any] = {}
     if measured_boxes:
         reconciliation = reconcile_elements(log, components, measured_boxes, args.bounds_tolerance)
+        reconciliation.update(
+            reconcile_component_surface_bounds(
+                log,
+                regions,
+                components,
+                measured_boxes,
+                measured_region_bounds,
+                args.bounds_tolerance,
+            )
+        )
     elif any(component["elements"] for component in components.values()):
-        log.warning("components", "measured-primitives",
-                    f"measured-primitives.json not found in {out_dir}; element bounds are unbacked by measurement "
-                    "(run measure_primitives.py)")
+        message = (
+            f"measured-primitives.json not found in {out_dir}; element bounds are unbacked by measurement "
+            "(run measure_primitives.py before authoring or validating component-track blueprints)"
+        )
+        if args.allow_unmeasured:
+            log.warning("components", "measured-primitives", message)
+        else:
+            log.error("components", "measured-primitives", message)
     reconcile_colors(log, tokens["colors"], reference, args.color_tolerance)
     reconcile_typography(log, tokens["typography"], measured_boxes)
 

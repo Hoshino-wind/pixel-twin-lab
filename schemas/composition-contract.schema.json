@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "pixel-twin-lab/composition-contract.schema.json",
+  "title": "Region Composition Contract",
+  "description": "Optional `composition` block on an element-manifest region (mirrored from blueprint layout.regions[].composition). Splits a region into a background plane (asset/chart/map) + foreground DOM overlays with z-order. verify_elements.py asserts every declared foreground overlay renders as an addressable [data-element] DOM node, geometrically inside the background, and stacked above it — the deterministic ANTI-SWALLOW gate: a foreground baked into the background bitmap has no addressable node and fails. (The orthogonal VLM count-recount of rev2 F2 is the producer-side automation; this is the consumer-side gate.) Optional and additive: a region without `composition` is verified exactly as before.",
+
+  "type": "object",
+  "properties": {
+    "composition": { "$ref": "#/$defs/composition" }
+  },
+
+  "$defs": {
+    "bounds": {
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "composition": {
+      "type": "object",
+      "required": ["background", "foreground"],
+      "additionalProperties": false,
+      "properties": {
+        "background": {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "description": "The background plane. inpaint-clean means the foreground was painted out of the asset (CV inpaint, automating the hand-made *-clean.png) so the foreground does not appear twice.",
+          "properties": {
+            "kind": { "enum": ["photo", "map", "chart", "gradient", "solid", "video", "scene-3d"] },
+            "asset_policy": {
+              "enum": ["inpaint-clean", "crop", "none"],
+              "default": "inpaint-clean",
+              "description": "inpaint-clean: produce the background with foreground regions inpainted out. crop: plain rectangle crop (only valid when there is no foreground). none: background is DOM/CSS, not an asset."
+            },
+            "asset_element_id": {
+              "type": "string",
+              "description": "data-element id of the background asset node (img/canvas/svg/video). Verified to exist and be an image/chart-host node, and to be distinct from every foreground id."
+            },
+            "library": { "type": "string", "description": "Renderer for chart/map/3d backgrounds, e.g. echarts/leaflet/three." },
+            "generated_asset_path": { "type": "string", "description": "Workbench-relative cleaned asset produced by materialize_composition_assets.py." }
+          }
+        },
+        "foreground": {
+          "type": "array",
+          "description": "DOM overlays floating above the background, in ascending z order. Each MUST render as an addressable [data-element] node — never baked into the background asset. Empty array asserts 'this region has no foreground' (crop policy allowed).",
+          "items": {
+            "type": "object",
+            "required": ["component_id", "z"],
+            "additionalProperties": false,
+            "properties": {
+              "component_id": { "type": "string", "description": "data-element id of the overlay; must be component-track DOM (text/control/card...), not an asset." },
+              "z": { "type": "integer", "minimum": 1, "description": "Stacking order above the background (background is z=0)." },
+              "bounds": { "$ref": "#/$defs/bounds" }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "examples": [
+    {
+      "_comment": "trip-route-map: a map background with the 'Bookings 7/10' card floating on top. The overlay is a separate DOM node (not baked into trip-map.png); the background is the inpaint-cleaned map asset.",
+      "name": "trip-route-map",
+      "bounds": { "x": 540, "y": 158, "width": 308, "height": 206 },
+      "composition": {
+        "background": { "kind": "map", "asset_policy": "inpaint-clean", "asset_element_id": "trip-map-bg", "library": "leaflet" },
+        "foreground": [
+          { "component_id": "trip-bookings-overlay", "z": 1, "bounds": { "x": 600, "y": 300, "width": 196, "height": 48 } }
+        ]
+      }
+    }
+  ]
+}

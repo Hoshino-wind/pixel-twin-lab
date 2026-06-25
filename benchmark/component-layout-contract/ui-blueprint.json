@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "source": {
+    "reference": "assets/reference.png",
+    "width": 360,
+    "height": 220,
+    "background": "#f8fafc"
+  },
+  "layout": {
+    "regions": [
+      {
+        "name": "kpi-row",
+        "bounds": { "x": 24, "y": 24, "width": 312, "height": 120 },
+        "role": "content",
+        "track": "component"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "uptime-card",
+      "region": "kpi-row",
+      "category": "data-display",
+      "type": "card",
+      "bounds": { "x": 24, "y": 24, "width": 160, "height": 80 },
+      "content": "Uptime",
+      "style": {
+        "source": "measured",
+        "expected": {
+          "background_color": "#ffffff",
+          "border_radius_px": 8,
+          "border_width_px": 1,
+          "border_style": "solid",
+          "border_color": "#dbe3ec"
+        }
+      },
+      "elements": [
+        {
+          "id": "uptime-title",
+          "type": "text",
+          "bounds": { "x": 40, "y": 38, "width": 80, "height": 18 },
+          "content": "Uptime",
+          "maps_to": "StatCard:title"
+        }
+      ]
+    }
+  ],
+  "tokens": {
+    "colors": [
+      { "name": "surface", "value": "#ffffff" },
+      { "name": "text-primary", "value": "#0f172a" }
+    ],
+    "typography": [
+      { "name": "body", "size_px": 14, "weight": "semibold" }
+    ],
+    "spacing": [
+      { "name": "gap-sm", "px": 8 }
+    ]
+  },
+  "data": [],
+  "interactions": [],
+  "implementation": {
+    "framework": "react",
+    "styling": "css",
+    "final_dir": "src/pixel-twin",
+    "plan": [
+      { "component_id": "uptime-card", "action": "create", "order": 1 }
+    ]
+  }
+}

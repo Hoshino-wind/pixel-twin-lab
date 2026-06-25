@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "source": {
+    "reference": "assets/reference.png",
+    "width": 320,
+    "height": 180,
+    "background": "#ffffff"
+  },
+  "layout": {
+    "regions": [
+      {
+        "name": "pager-control",
+        "bounds": { "x": 24, "y": 24, "width": 120, "height": 48 },
+        "role": "content",
+        "track": "component"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "pager-button",
+      "region": "pager-control",
+      "category": "general",
+      "type": "button",
+      "bounds": { "x": 24, "y": 24, "width": 120, "height": 48 },
+      "content": "Next",
+      "elements": [
+        {
+          "id": "pager-chevron",
+          "type": "icon",
+          "bounds": { "x": 120, "y": 40, "width": 8, "height": 12 },
+          "content": "simple chevron",
+          "maps_to": "Button:suffixIcon",
+          "asset_policy": "trivial-vector"
+        },
+        {
+          "id": "pager-label",
+          "type": "text",
+          "bounds": { "x": 48, "y": 38, "width": 48, "height": 16 },
+          "content": "Next",
+          "maps_to": "Button:label"
+        }
+      ]
+    }
+  ],
+  "tokens": {
+    "colors": [
+      { "name": "surface", "value": "#ffffff" },
+      { "name": "text-primary", "value": "#0f172a" }
+    ],
+    "typography": [
+      { "name": "body", "size_px": 14, "weight": "medium" }
+    ],
+    "spacing": [
+      { "name": "gap-sm", "px": 8 }
+    ]
+  },
+  "data": [],
+  "interactions": [
+    {
+      "target": "pager-button",
+      "trigger": "click",
+      "behavior": "Advance to the next page.",
+      "states": ["hover", "focus"],
+      "source": "type-default"
+    }
+  ],
+  "implementation": {
+    "framework": "react",
+    "styling": "css",
+    "final_dir": "src/pixel-twin",
+    "plan": [
+      { "component_id": "pager-button", "action": "create", "order": 1 }
+    ]
+  }
+}
