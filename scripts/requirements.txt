@@ -1,2 +1,1 @@
-Pillow>=10
-numpy>=1.26
+Pillow>=10,<12

@@ -1,6 +1,4 @@
-# Codex-only interface descriptor. Claude Code does not read this file;
-# its runtime entry points are SKILL.md and the scripts/ directory.
 interface:
-  display_name: "Pixel Twin Lab"
-  short_description: "Turn UI images into component QA flows"
-  default_prompt: "Use $pixel-twin-lab to recreate this UI image as a componentized project flow with pixel-diff QA."
+  display_name: "Pixel Twin UI Editor"
+  short_description: "Apply references directly to existing frontend UIs"
+  default_prompt: "Use $pixel-twin-lab to apply this visual reference directly to the existing UI without changing business behavior."

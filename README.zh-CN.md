@@ -1,165 +1,113 @@
-# Pixel Twin Lab
+# Pixel Twin UI Editor
 
 [English](README.md)
 
-把一张 UI 参考图——截图、设计稿或 AI 生成的界面图——变成一个本地可视化 QA 工作台。Pixel Twin Lab 用代码重建该 UI,在真实浏览器中截图,并与原图做像素级对比测量,让"看起来一样"从主观判断变成一个可量化的数字。
+把截图、设计稿或视觉修改要求直接应用到已有前端项目，同时保持业务行为不变。
 
-它被设计为 agent skill(Claude Code / Codex)运行,但每一步都是普通的 Python 或 Node 脚本,也可以完全手动执行。
+最终产物就是目标项目的 Git diff。Pixel Twin 不再生成 Lab、蓝图、manifest、packet、报告、截图目录或另一份重建项目。
 
-## 为什么需要这个项目
+## 修改范围
 
-vibe coding 做界面很快,但从图片还原 UI 时经常会卡在这些痛点里:
+允许修改：
 
-- "看起来差不多"是主观判断,不知道下一轮修改到底有没有变好。
-- 全屏截图只能说明页面不一样,但说不清到底是哪一个组件、哪一块区域错了。
-- AI 生成的 UI 图没有真实图层、tokens、组件边界和资产来源,只能从位图里反推。
-- agent 容易为了接近原图而贴整张位图,结果看似高保真,其实不是可维护组件。
-- 真实项目已经有路由、样式体系、设计 token 和 UI 库,通用重建很容易破坏项目约定。
-- 缺少可复盘的回测记录,每次迭代都在凭肉眼猜。
+- 组件视图结构和组合方式；
+- CSS、主题、Token、布局、响应式和视觉层级；
+- 无障碍属性和呈现型动效；
+- 最终页面实际使用的图片、图标、SVG 和字体。
 
-Pixel Twin Lab 把这件事变成一条可验证流水线:固定同一个 viewport 截图,用同一套区域指标对比,记录每轮结果,再根据数据决定下一步修布局、修 token、合并切片岛,还是重建某个区域。
+默认保护 API、Store、路由、请求、Query、Mutation、持久化、Schema、后端、业务校验及已有事件处理行为。
 
-## 功能
+## 工作流
 
-针对每张参考图,工作台生成包含四种模式的 HTML 页面:
+1. 只读检查已有项目和目标 UI。
+2. 在系统临时目录记录当前 Git 工作树，并在条件允许时记录稳定的修改前视觉基线。
+3. 直接修改真正拥有该 UI 的项目文件。
+4. 统一执行一次范围、项目原生检查和可选视觉检查。
+5. 最多进行一次定向视觉修复。
 
-- **Reference(参考)** — 原图,作为基准真值。
-- **Rebuilt(重建)** — 用代码/组件实现的重建版本。
-- **Overlay(叠加)** — 参考图以可调透明度叠加在重建版本之上。
-- **Exact Slice(精确切片)** — 按测量坐标贴回的位图裁切,展示位图级还原的上限。
+Guard 状态、截图、日志和 diff 默认只存在于系统临时目录，并自动删除。目标项目中只留下真实源码修改和产品最终资产。
 
-目标不是假装所有代码实现的 UI 都能做到一像素不差,而是让保真度的取舍**可见、可测量、可重复**:输出像素差异图、mismatch 百分比、MAE、最大色差,以及按区域细分的指标,精确指出 UI 哪个部分差距最大。
+## 命令
 
-在测量之外,该 skill 还驱动完整的组件化流程:检查目标项目,遵循其框架与样式约定,把生产级组件写入项目源码树,并把所有中间产物(切片、截图、diff、台账)隔离在独立的 work 目录中。
+只读检查项目：
 
-## 回测与评估数据
+```bash
+python3 scripts/pixel_twin.py inspect --project /absolute/path/to/project
+```
 
-这个仓库当前不内置固定的公开 benchmark 数据集。它的"回测数据"是每次运行自动产出的可复盘证据,同一张参考图、同一个 viewport、同一组区域可以反复截图、对比和追踪:
+修改前保护当前工作树：
 
-- `capture-meta.json`:记录浏览器、viewport、device scale、色彩配置和截图模式。
-- `pixel-diff-summary.json`:记录整体和分区域的 strict mismatch、tolerant mismatch、MAE、最大色差和差异包围盒。
-- `*-diff.png`:输出像素差异热力图,直接看到哪里不一致。
-- `calibration-plan.json` / `calibration-plan.md`:把错误区域归类为骨架、布局、token、切片岛或重建任务。
-- `triage-report.json` / `triage-report.md`:在继续改代码前给出下一步判断,避免盲调。
-- `fidelity-gate.json` / `fidelity-gate.md`:区分 component-only、componentized-islands、approximation、hybrid asset 和 placeholder 结果。
-- `component-primitives.md`、`measured-primitives.md`、`region-metric-comparison.md`:当组件化未达标时,给出下一轮组件原语、测量框和前后指标对比。
+```bash
+python3 scripts/pixel_twin.py begin --project /absolute/path/to/project
+```
 
-核心评估信号包括:
+存在本地页面和参考图时，在 `begin` 阶段同时建立修改前视觉基线：
 
-- **零基线**: `reference-capture.png` 对原参考图必须接近 `0%` mismatch,否则说明截图环境本身不可信。
-- **严格匹配率**: `100 - mismatch_pct`,用于 98% 保真门槛。
-- **容错匹配率**:忽略极小通道差异,用于观察字体抗锯齿、浏览器渲染残差。
-- **最差区域排序**:按区域 mismatch 排出下一轮最该修的组件。
-- **资产覆盖率**:统计生成资产覆盖面积,防止用整页位图冒充组件化还原。
+```bash
+python3 scripts/pixel_twin.py begin \
+  --project /absolute/path/to/project \
+  --url http://127.0.0.1:3000/dashboard \
+  --reference /absolute/path/reference.png
+```
 
-## 这个项目能做什么
+完成修改后，只检查基线之后的变化，并运行项目已有格式、Lint 和类型检查：
 
-- 从 UI 截图、设计稿或 AI 生成界面创建本地视觉 QA 工作台。
-- 在真实浏览器里按原图尺寸截取 reference、rebuilt、overlay、exact-slice 模式。
-- 输出整页和命名区域的像素 diff 热力图、JSON 指标和最差区域排序。
-- 在修 CSS 或组件前先验证截图环境,避免把 viewport、色彩配置、字体问题误判成实现问题。
-- 区分"位图精确"和"可维护组件还原",不把两种结果混在一起。
-- 对图表、地图、照片、头像、复杂媒体等区域使用明确的切片岛策略,保留组件外壳和交互。
-- 针对目标项目初始化完整组件化流程,自动识别框架、路由、样式系统和 UI 库。
-- 为 agent 迭代生成 recovery scaffold、component ledger、primitive worklist 和 fidelity gate。
+```bash
+python3 scripts/pixel_twin.py check --session <session-id>
+```
 
-## 解决的痛点
+`check` 会自动复用 `begin` 保存的视觉基线，并输出布局、多尺度结构、边缘、连续调色板相似度、像素残差、最多三个热点以及相对修改前的改善/回退风险。有 DOM 证据时，内部会在固定候选池中避免较小但可修复的热点被大型无归属残差挤掉，同时严格限制为最多六次修复求解和三个公开热点。每个热点可附带一个限量 DOM 候选、一个保守的位置/尺寸/颜色修复提示，以及最多两个来自会话许可 UI 文件的仓库相对源码位置。视觉对应关系重复、缺失、不可靠，或无法从内容变化中唯一分离出排版差异时，会明确返回 `uncertain`，不会伪造数值修复。Canvas、视频和复杂 SVG 会从静态噪声中移出，单独比较结构、边缘分布、颜色和时间漂移；自定义图表或地图容器可重复传入 `--dynamic-selector`。图片资源加载失败或渲染不稳定时会在评分前直接失败。没有基线时仍可使用一次性的 `check --url ... --reference ...`，但无法报告前后增益或会话范围内的源码候选。
 
-- 把主观视觉评审变成可重复的量化指标。
-- 防止 agent 用整页图片遮住组件实现质量问题。
-- 让复杂 dashboard、低对比 SaaS 界面可以按区域逐步修复。
-- 给每次重建迭代留下前后对比和回测记录。
-- 把截图、切片、diff、台账等中间产物隔离在 work 目录,不污染生产源码。
-- 明确交付物到底是组件式还原、位图精确、混合资产方案,还是只是 placeholder contract。
+视觉结果默认只作为反馈，不把像素百分比当成硬门禁。只有用户明确给出量化验收目标时，才传入 `--min-match <百分比>`。只有准备进行一次定向修复时才使用 `--keep-session`；最终检查不要保留，或用 `finish` 清理。
 
-## 环境要求
+`check` 默认不执行构建，因此不会制造常规框架构建缓存。目标仓库确实要求生产构建时，`--run build` 会在自动格式、Lint 和类型检查之后追加构建。
 
-- **Python 3**,需要 [Pillow](https://pillow.readthedocs.io/) 和 numpy(二者都是必需依赖):
+检查成功后会删除临时会话。放弃失败会话时执行：
 
-  ```bash
-  pip install -r scripts/requirements.txt
-  ```
+```bash
+python3 scripts/pixel_twin.py finish --session <session-id>
+```
 
-- **Node.js**,需要完整的 `playwright` 包和 Playwright 自带 Chromium:
+自动识别不足时，可指定相对 `--project` 的 `--ui-root`、`--asset-root` 或精确的 `--editable` 文件；显式根目录会追加到自动识别结果。在 monorepo 中，`--project` 可以指向前端包，Guard 仍会保护整个外层 Git 仓库。`--editable` 不能放开后端、API、Store、Schema、包配置和基础设施路径。
+
+如果目标 UI 文件已经包含用户修改，先审查原有 diff，再用 `--editable` 精确声明该文件，并保留原有 hunk。
+
+## 安全边界
+
+- `begin` 会记录 Git 可见的用户已有修改，这些修改不会被误算成本次任务；被忽略的 `.env*` 和常见 Pixel Twin 诊断目录会单独保护。
+- 默认禁止再次修改已有脏文件；确需修改时必须在开始时精确声明。
+- 会话中 stage 或 unstage 会被阻止。
+- 非 UI 路径、高置信度业务逻辑变化、危险 SVG、符号链接和超大资产会被阻止。
+- 工具不会执行 `stash`、`reset`、`checkout`、`clean`、`git add` 或 `git commit`。
+- 静态检查无法形式化证明混合 TSX/Vue 文件完全没有行为变化，最终仍需审查 Git diff。
+
+## 成本控制
+
+- 一次初始视觉分析；
+- 一次可选的确定性修改前视觉基线；
+- 一次统一检查，最多返回三个视觉热点；
+- 每个热点最多一个修复提示和两个源码位置，不增加截图；
+- 最多一次定向修复和复查；
+- 默认不按区域或组件拆分多个 Agent；
+- 成功时只输出摘要，不回传完整日志；
+- 目标项目内零 QA 中间产物。
+
+## 环境
+
+- Git 和 Python 3.10+
+- Pillow：`pip install -r scripts/requirements.txt`
+- 可选浏览器对比需要 Node.js 18+ 和 Playwright：
 
   ```bash
   npm install
   npm run install:browsers
   ```
 
-## 快速开始
+## 开发检查
 
 ```bash
-# 1. 从参考图创建工作台
-python scripts/prepare_lab.py \
-  --reference /absolute/path/reference.png \
-  --out-dir /absolute/path/outputs/pixel-twin
-
-# 2. 在生成的 rebuilt-layer 中实现重建版本,然后启动本地服务
-python3 -m http.server 8787 \
-  --bind 127.0.0.1 \
-  --directory /absolute/path/outputs/pixel-twin
-
-# 3. 从项目根目录截取 reference / rebuilt / exact 三种模式
-node scripts/capture_modes.cjs \
-  --url http://127.0.0.1:8787/ \
-  --out-dir /absolute/path/outputs/pixel-twin \
-  --browser bundled
-
-# 4. 生成差异图和指标
-python scripts/pixel_diff.py \
-  --reference /absolute/path/outputs/pixel-twin/assets/reference.png \
-  --out-dir /absolute/path/outputs/pixel-twin
+npm test
+npm run check
 ```
 
-Codex 环境里必须从项目根目录直接执行 `node scripts/capture_modes.cjs`。
-不要包一层 `/bin/zsh -lc`，不要加 `env`、`cd`、重定向或绝对 Node 路径；
-否则已批准的命令前缀匹配不上，会继续触发提权审批。默认使用 Playwright
-自带 Chromium，不自动回退系统 Chrome；系统 Chrome 只用于显式本地调试
-，并且必须额外设置 `PIXEL_TWIN_ALLOW_SYSTEM_BROWSER=1`。自动回测一律使用
-`--browser bundled`。
-
-diff 步骤会输出 `pixel-diff-summary.json`(整体及分区域的 mismatch / MAE / 最大色差)和 `*-diff.png` 热力图。针对最差区域迭代修改、重新截图、重新 diff,直到指标收敛。
-
-要把图片完整组件化落地到现有项目,请从 `scripts/init_component_flow.py` 开始,并阅读 [`references/componentization-workflow.zh-CN.md`](references/componentization-workflow.zh-CN.md)。
-
-## 脚本一览
-
-| 脚本 | 用途 |
-| --- | --- |
-| `scripts/prepare_lab.py` | 从参考图构建工作台,自动检测组件切片(渐变/照片背景用 `--full-bleed`;阈值检测漏掉的低对比 UI 用 `--manifest` 手工声明命名切片) |
-| `scripts/capture_modes.cjs` | 在真实浏览器中以原生尺寸截取 reference/rebuilt/exact 模式,并输出 `capture-meta.json` 以便溯源 |
-| `scripts/pixel_diff.py` | 生成差异图和 JSON 指标,含按切片和命名区域的细分 |
-| `scripts/plan_calibration.py` | 把分区域 diff 变成有序修复计划(骨架 → layout → tokens → 切片岛 → 重建),并直接给出可用的骨架 CSS 和岛 manifest 建议 |
-| `scripts/triage_lab.py` | 读取 lab 配置、diff 指标和校准计划,判断下一步应该修环境、手动 manifest、搭骨架、合并岛、修 layout/token,还是重建区域 |
-| `scripts/bootstrap_recovery.py` | 把 triage/planner 结果转成 starter manifest、组件/岛台账、岛图片、骨架 CSS 和中间 React scaffold |
-| `scripts/fidelity_gate.py` | 按 component-only / componentized-islands / approximation / hybrid / placeholder 分类验收,并强制检查零基线和资产覆盖 |
-| `scripts/compare_structure.py` | 对 approximation 区域(第三方图表、地图、3D)做结构比较:原语数量、位置偏移、前景色板 |
-| `scripts/extract_element_assets.py` | 把测量到的图标、头像、缩略图、卡片媒体、突出导航主控件、KPI sparkline/进度条片段、时间线 marker 条、保守的彩色连通块图标/插画和已路由的岛/近似区域提升为 `element-assets.json` 与裁剪资产 |
-| `scripts/extract_text_elements.py` | 用高置信 OCR 抽取文字行,包含按 region 放大 OCR 和冗余合并行剪枝,写入 `text-elements.json`,可合并进 `element-manifest.json` 作为可验证 text 元素 |
-| `scripts/init_element_manifest.py` | 从 measured primitives 生成元素 manifest,并合并 `element-assets.json`;重跑时清理过期资产引用,卡片内媒体图保持独立 image 元素,避免被拉伸到整张卡片 primitive |
-| `scripts/materialize_element_manifest_lab.py` | 用 element manifest 物化诊断用 rebuilt 层,按 DOM `<img>` 消费声明过的元素资产,透明化 OCR/asset 已覆盖的旧占位块,把嵌套父容器渲染成无边框背景填充,并为 chip/button 推断保守的文本/组级控件壳层 |
-| `scripts/init_component_flow.py` | 针对目标项目初始化组件化运行(contract、map、ledger) |
-
-## 作为 agent skill 使用
-
-- **Claude Code**:把本目录链接或复制到 `~/.claude/skills/`。运行时入口是 [`SKILL.md`](SKILL.md),其中包含 agent 遵循的决策规则、工作流和输出契约。
-- **Codex**:`agents/openai.yaml` 是仅供 Codex 使用的接口描述文件,Claude Code 运行时不使用它。
-
-英文是该 skill 的默认运行时语言。中文镜像供人工阅读:[`SKILL.zh-CN.md`](SKILL.zh-CN.md) 和 [`references/componentization-workflow.zh-CN.md`](references/componentization-workflow.zh-CN.md)。
-
-## 仓库结构
-
-```
-SKILL.md                  Agent 运行时入口(决策规则、工作流、输出契约)
-SKILL.zh-CN.md            SKILL.md 的中文镜像
-scripts/                  Python/Node 工具(prepare、capture、diff、组件化初始化)
-references/               完整组件化工作流文档(英文 + 中文)
-references/component-taxonomy.md  参考 Ant Design 的组件分类/类型表
-assets/prototype-template 工作台 HTML/CSS/JS 模板
-agents/openai.yaml        仅供 Codex 的接口描述文件
-```
-
-## 许可证
-
-[Apache 2.0](LICENSE)
+Skill 入口是 [SKILL.md](SKILL.md)。UI-only 详细边界和临时视觉检查说明位于 `references/`，仅在需要时读取。

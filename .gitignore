@@ -1,8 +1,8 @@
 __pycache__/
-work/
 .DS_Store
 .claude/settings.local.json
 **/node_modules/
-calibration-targets/
-
+.pixel-twin/
+outputs/
 testpng/
+work/

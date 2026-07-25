@@ -1,34 +1,36 @@
 {
   "name": "pixel-twin-lab",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "private": true,
-  "description": "Pixel Twin Lab screenshot backtesting and componentization skill tools.",
+  "description": "In-place UI editing guard and temporary visual verification for existing frontend projects.",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "pixel-twin": "scripts/pixel_twin.py"
+  },
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "agents/",
+    "references/",
+    "scripts/pixel_twin.py",
+    "scripts/visual_compare.py",
+    "scripts/dynamic_compare.py",
+    "scripts/repair_hints.py",
+    "scripts/browser_capture.cjs",
+    "scripts/requirements.txt"
+  ],
   "scripts": {
     "install:browsers": "playwright install chromium",
-    "smoke": "python3 scripts/smoke_workflow.py",
-    "bench": "python3 scripts/run_browser_policy_benchmark.py && python3 scripts/run_e2e_benchmark.py --suite style-contract && python3 scripts/run_e2e_benchmark.py --suite composition-contract && python3 scripts/run_e2e_benchmark.py --suite collection-contract && python3 scripts/run_e2e_benchmark.py --suite asset-contract && python3 scripts/run_e2e_benchmark.py --suite component-layout-contract && python3 scripts/run_e2e_benchmark.py --suite component-surface-contract && python3 scripts/run_e2e_benchmark.py --suite component-ownership-contract && python3 scripts/run_blueprint_validation_benchmark.py --suite taxonomy-contract && python3 scripts/run_blueprint_validation_benchmark.py --suite coverage-contract && python3 scripts/run_blueprint_validation_benchmark.py --suite component-contract-required && python3 scripts/run_blueprint_validation_benchmark.py --suite measurement-required-contract && python3 scripts/run_codegen_packet_benchmark.py && python3 scripts/run_element_asset_extraction_benchmark.py && python3 scripts/run_collection_inference_benchmark.py && python3 scripts/run_fidelity_gate_benchmark.py",
-    "bench:browser-policy": "python3 scripts/run_browser_policy_benchmark.py",
-    "bench:style": "python3 scripts/run_e2e_benchmark.py --suite style-contract",
-    "bench:composition": "python3 scripts/run_e2e_benchmark.py --suite composition-contract",
-    "bench:collection": "python3 scripts/run_e2e_benchmark.py --suite collection-contract",
-    "bench:asset": "python3 scripts/run_e2e_benchmark.py --suite asset-contract",
-    "bench:component-layout": "python3 scripts/run_e2e_benchmark.py --suite component-layout-contract",
-    "bench:component-surface": "python3 scripts/run_e2e_benchmark.py --suite component-surface-contract",
-    "bench:component-ownership": "python3 scripts/run_e2e_benchmark.py --suite component-ownership-contract",
-    "bench:taxonomy": "python3 scripts/run_blueprint_validation_benchmark.py --suite taxonomy-contract",
-    "bench:coverage": "python3 scripts/run_blueprint_validation_benchmark.py --suite coverage-contract",
-    "bench:component-contract": "python3 scripts/run_blueprint_validation_benchmark.py --suite component-contract-required",
-    "bench:measurement-required": "python3 scripts/run_blueprint_validation_benchmark.py --suite measurement-required-contract",
-    "bench:packets": "python3 scripts/run_codegen_packet_benchmark.py",
-    "bench:element-assets": "python3 scripts/run_element_asset_extraction_benchmark.py",
-    "bench:collection-inference": "python3 scripts/run_collection_inference_benchmark.py",
-    "bench:fidelity-gate": "python3 scripts/run_fidelity_gate_benchmark.py"
+    "smoke": "python3 scripts/pixel_twin.py inspect --project . && python3 scripts/pixel_twin.py --help && node scripts/browser_capture.cjs --help",
+    "smoke:visual": "python3 tests/visual_smoke.py",
+    "test": "python3 -m unittest discover -s tests -v",
+    "check": "python3 -m compileall -q scripts tests && node --check scripts/browser_capture.cjs && npm test"
   },
   "devDependencies": {
-    "playwright": "^1.60.0",
-    "playwright-core": "^1.61.0"
-  },
-  "dependencies": {
-    "echarts": "^6.1.0"
+    "playwright": "^1.60.0"
   }
 }
