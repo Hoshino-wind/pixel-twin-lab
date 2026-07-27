@@ -1,10 +1,26 @@
 # Pixel Twin UI Editor
 
-[中文说明](README.zh-CN.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+[简体中文](README.zh-CN.md)
 
 Apply a screenshot, mockup, or visual change request directly to an existing frontend project without changing its business behavior.
 
 The target project's Git diff is the product. Pixel Twin does not generate a lab, blueprint, manifest, packet, report, capture directory, or parallel reconstruction project.
+
+```text
+reference image + existing frontend
+  → protected worktree baseline
+  → in-place UI edits
+  → project-native checks + bounded visual comparison
+  → reviewable Git diff
+```
+
+## In 15 seconds
+
+Pixel Twin is an agent skill for changing the UI that already owns the product. It keeps APIs, stores, routes, persistence, schemas, backend code, business validation, and existing handler behavior outside the default edit boundary.
+
+Its visual loop is deliberately bounded: one optional pre-edit baseline, one consolidated check, at most three actionable hotspots, and at most one targeted repair. Ambiguous visual correspondence is reported as `uncertain` instead of becoming a guessed code change.
 
 ## What it changes
 
@@ -109,3 +125,7 @@ npm run check
 ```
 
 The skill entry point is [SKILL.md](SKILL.md). Detailed UI-only boundaries and temporary visual verification are loaded conditionally from `references/`.
+
+## License
+
+[MIT](LICENSE)

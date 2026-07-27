@@ -1,10 +1,26 @@
 # Pixel Twin UI Editor
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [English](README.md)
 
 把截图、设计稿或视觉修改要求直接应用到已有前端项目，同时保持业务行为不变。
 
 最终产物就是目标项目的 Git diff。Pixel Twin 不再生成 Lab、蓝图、manifest、packet、报告、截图目录或另一份重建项目。
+
+```text
+参考图 + 已有前端项目
+  → 受保护的工作树基线
+  → 原项目内 UI 修改
+  → 项目原生检查 + 有界视觉对比
+  → 可审查的 Git diff
+```
+
+## 15 秒了解项目
+
+Pixel Twin 是一项直接修改真实产品 UI 的 Agent Skill。API、Store、路由、持久化、Schema、后端代码、业务校验和已有事件处理行为默认都在编辑边界之外。
+
+它的视觉闭环被刻意限制：一次可选的修改前基线、一次统一检查、最多三个可执行热点，以及最多一次定向修复。无法可靠对应的视觉差异会返回 `uncertain`，不会变成猜测性的代码修改。
 
 ## 修改范围
 
@@ -111,3 +127,7 @@ npm run check
 ```
 
 Skill 入口是 [SKILL.md](SKILL.md)。UI-only 详细边界和临时视觉检查说明位于 `references/`，仅在需要时读取。
+
+## 许可证
+
+[MIT](LICENSE)
